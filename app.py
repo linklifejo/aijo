@@ -153,23 +153,16 @@ def main():
             elif table == "apikeys":
                 api_key_value = st.text_input("API Key Value")
                 creation_date = st.date_input("Creation Date")
-                expiration_date = st.date_input("Expiration Date")
-                owner_user_id = st.number_input("Owner User ID", min_value=0)
+                member_id = st.number_input("member ID", min_value=0)
                 status = st.selectbox("Status", ["Active", "Inactive", "Revoked"])
-                usage_limit = st.number_input("Usage Limit", min_value=0)
-                permissions = st.text_input("Permissions Scope")
                 description = st.text_area("Description/Notes")
-
                 submit_button = st.form_submit_button(label='Insert API Key')
                 if submit_button:
                     data = {
                         "api_key_value": api_key_value,
                         "creation_date": str(creation_date),
-                        "expiration_date": str(expiration_date),
-                        "owner_user_id": owner_user_id,
+                        "member_id": member_id,
                         "status": status,
-                        "usage_limit": usage_limit,
-                        "permissions": permissions,
                         "description": description
                     }
                     insertData("apikeys", data, unique_key_column="api_key_value")

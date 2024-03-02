@@ -88,10 +88,6 @@ async def _setupTables():
                     profile_photo TEXT,
                     preferences TEXT,
                     notes TEXT,
-                    apikey_id TEXT,
-                    assistant_id TEXT,
-                    thread_id TEXT,
-                    file_id TEXT               
                     description TEXT
                 );
                 CREATE TABLE IF NOT EXISTS apikeys (
