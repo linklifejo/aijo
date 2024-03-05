@@ -93,23 +93,22 @@ async def _setupTables():
                 CREATE TABLE IF NOT EXISTS apikeys (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     api_key_value TEXT NOT NULL UNIQUE,
-                    creation_date TEXT NOT NULL DEFAULT CURRENT_DATE,
-                    member_id INTEGER,                       -- 'member_id'
+                    member_id INTEGER NOT NULL DEFAULT 1,                       -- 'member_id'
                     status TEXT NOT NULL DEFAULT 'Active',       -- 'Active', 'Inactive', 'Revoked' 
-                    description TEXT
+                    description TEXT NOT NULL DEFAULT '회원관리자'
                 );
-
+                CREATE TABLE IF NOT EXISTS relations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    member_id TEXT NOT NULL,
+                    assistant_id TEXT NOT NULL,   
+                    thread_id  TEXT NOT NULL, 
+                    apikey_id  TEXT NOT NULL,                                   
+                    status TEXT NOT NULL DEFAULT 'Active',       -- 'Active', 'Inactive' 
+                    description TEXT NOT NULL DEFAULT 'Chatting'      -- 'Chatting', 'Voice', 'Complex' 
+                );
                 CREATE TABLE IF NOT EXISTS assistants (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     assistant_id TEXT NOT NULL UNIQUE,
-                    instruction TEXT NOT NULL,  
-                    model TEXT NOT NULL,       
-                    code_interpreter TEXT,
-                    retrieval TEXT,
-                    functions TEXT,                                                  
-                    file_id TEXT,
-                    status TEXT DEFAULT 'Active', -- 'Active', 'Inactive', 'Revoked'
-                    creation_date TEXT NOT NULL DEFAULT CURRENT_DATE,
                     member_id INTEGER,
                     description TEXT,
                     apikey_id INTEGER, 
@@ -121,8 +120,6 @@ async def _setupTables():
                 CREATE TABLE IF NOT EXISTS threads (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         thread_id TEXT NOT NULL UNIQUE,
-                        created_date TEXT NOT NULL DEFAULT CURRENT_DATE,
-                        status TEXT,               -- 'Active', 'Inactive'
                         merber_id INTEGER,
                         description TEXT,
                         assistant_id INTEGER, 
@@ -134,10 +131,6 @@ async def _setupTables():
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         file_id TEXT NOT NULL UNIQUE,
                         name TEXT,           
-                        created_date TEXT,
-                        used TEXT,
-                        status TEXT,
-                        member_id INTEGER,
                         description TEXT,
                         assistant_id INTEGER, 
                         FOREIGN KEY (assistant_id)

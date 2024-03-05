@@ -4,7 +4,25 @@ import json
 from database import removeDbFile,setupTables, insertData, updateData, deleteData, queryByField, queryToDataframe, queryJoin
 import logging
 import os
+def isrelations(client,apikey_id,member_id=1):
+    query_data = queryByField("relations","member_id",member_id)
+    if query_data is not None:
 
+        if len(query_data) > 0:
+            for index,row in query_data.iterrows():
+                assistant_id = row['assistant_id']
+                thread_id = row['thread_id']
+                return assistant_id, thread_id
+        else:
+            assistant_id =assistant_create(client)
+            thread_id =thread_create(client)
+            insertData('relations', {
+            'member_id': member_id,
+            'assistant_id': assistant_id,  
+            'thread_id': thread_id,  
+            'apikey_id': apikey_id  
+            },"id")
+            return assistant_id, thread_id
 # api_key = os.environ.get("OPENAI_API_KEY")
 # 업로드할 파일들의 경로를 지정합니다.
 # files_to_upload = [
