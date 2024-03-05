@@ -4,6 +4,7 @@ from gtts import gTTS
 from pygame import mixer
 import speech_recognition as sr
 import time
+
 is_playing = False
 async def _text_to_speech(text, lang='ko'):
     global is_playing
@@ -35,7 +36,7 @@ async def _stop_to_speech():
     global is_playing
     if is_playing and mixer.get_init():
         mixer.music.stop()
-        mixer.mixer.init()
+        mixer.init()
         is_playing = False
         
 async def _speech_to_text_async():
@@ -77,15 +78,3 @@ def text_to_speech(text):
     asyncio.set_event_loop(loop)
     loop.run_until_complete(_text_to_speech(text))
 
-
-def main():
-    success,result = speech_to_text()
-    if success:
-        print(f"Recognized Text: {result}")
-    else:
-        print(f"Error: {result}")
-
-    text_to_speech('안녕하세요')
-
-if __name__ == "__main__":
-    main()

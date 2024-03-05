@@ -12,6 +12,21 @@ import datetime
 import sqlite3
 import asyncio
 import audio
+def oil_price():
+  url = "https://www.knoc.co.kr/"
+  r = requests.get(url)
+  soup = BeautifulSoup(r.text, 'html.parser')
+  price=[]
+  for tag in soup.find_all("dl",class_="money_list")[3:]:
+    price.append(tag.find('li').text)
+  return {"Dubai":2000, "WTI":2000, "Brent":2000}
+
+def usd_krw():
+  url = "https://finance.naver.com/marketindex/"
+  r = requests.get(url)
+  soup = BeautifulSoup(r.text, 'html.parser')
+  usdkrw = soup.find("span",class_='value').text
+  return usdkrw
 # 비동기 함수를 정의합니다. 이 함수는 임의의 숫자 목록을 생성합니다.
 async def generate_numbers():
     numbers = [random.randint(0, 100) for _ in range(10)]
