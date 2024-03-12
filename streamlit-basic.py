@@ -5,13 +5,71 @@ import seaborn as sns
 import numpy as np
 import qrcode
 import time
+import requests
 import FinanceDataReader as fdr
+from bs4 import BeautifulSoup
 import random
 from datetime import datetime as dt
 import datetime
 import sqlite3
 import asyncio
 import audio
+import concurrent
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+import time
+from functools import partial
+# 동기함수를 비동기함수로 실행하는 방법이며, 이는 기존에 존재하는 동기함수를 비동기로 실행하는데 쓰레드를 이용하는것에 주의
+# 동기 함수
+def sync_function(x,y):
+    return x + y
+
+# 비동기 실행 함수
+async def run_sync_function_async(x,y):
+    loop = asyncio.get_running_loop()
+    partial_func = partial(sync_function, x, y)
+    result = await loop.run_in_executor(None, partial_func)
+    return result
+
+# 비동기 작업을 실행하고 결과를 반환하는 스트림릿 컴포넌트
+def async_component(key, x,y):
+    # Streamlit의 캐싱 메커니즘 사용하여 비동기 작업 결과를 캐시
+    @st.cache_data()
+    def get_async_result(x,y):
+        return asyncio.run(run_sync_function_async(x,y))
+
+    result = get_async_result(x,y)
+    st.write(f"Result for {x + y}: {result}")
+
+# 스트림릿 앱의 메인 함수
+def main():
+    st.title("Async Function Demo in Streamlit")
+
+    # 버튼을 사용하여 비동기 작업 시작
+    if st.button("Run Async Task"):
+        with st.spinner("Running async tasks..."):
+            async_component("task1", 1,1)
+            async_component("task2", 2,2)
+            async_component("task3", 3,3)
+        st.success("Done!")
+        
+URLS = ['http://www.foxnews.com/', 'http://www.cnn.com/', ...]
+
+# URL에 접근하여 내용을 읽는 함수
+def load_url(url, timeout):
+    with urllib.request.urlopen(url, timeout=timeout) as conn:
+        return conn.read()
+
+# ThreadPoolExecutor를 사용하여 병렬로 URL 내용 로드
+with ThreadPoolExecutor(max_workers=5) as executor:
+    future_to_url = {executor.submit(load_url, url, 60): url for url in URLS}
+    for future in concurrent.futures.as_completed(future_to_url):
+        url = future_to_url[future]
+        try:
+            data = future.result()
+            print(f"{url} page is {len(data)} bytes")
+        except Exception as exc:
+            print(f"{url} generated an exception: {exc}")
 def oil_price():
   url = "https://www.knoc.co.kr/"
   r = requests.get(url)
@@ -238,6 +296,8 @@ if file is not None:
     elif 'xls' in ext:
         # 엑셀 로드
         df = pd.read_excel(file, engine='openpyxl')
+        st.dataframe(df)
+
         # 출력
 
 # 한글 폰트 설정

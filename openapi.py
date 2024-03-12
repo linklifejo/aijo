@@ -268,6 +268,7 @@ def wait_on_run(client, run, thread_id):
             thread_id=thread_id,
             run_id=run.id,
         )
+        print(run.status)
         time.sleep(2)
     return run
 
@@ -303,6 +304,3 @@ def result(client, run, thread_id):
             tool_outputs=tool_outputs
             )
             run = wait_on_run(client,run,thread_id)
-
-
-

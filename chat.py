@@ -6,11 +6,10 @@ import random
 import audio
 import util
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
-def run_async(coroutine):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(coroutine)
+    # result_thread.join() 를 제거하여 메인 스레드가 바로 이어서 실행되도록 함
+
 
 if 'id' not in st.session_state:
     st.session_state.id=''
@@ -56,6 +55,7 @@ components.html(
     height=0,
     width=0,
 )
+
 def login():
     if not st.session_state.id:
         form.write("아이디를 입력하세요....")
@@ -70,12 +70,19 @@ def login():
             key = openapi.load_api_key()
             if key is not None:
                 st.session_state.api_key = key
-             
+def run_async(coroutine):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coroutine)             
 with st.sidebar:
     form = st.form("my_form")
     form.text_input("아이디", key="id")
     form.text_input("페스워드", key="ps",type="password")
     "[Get an OpenAI API key](https://platform.openai.com/account/api-keys)"
+    c = st.button('정리')
+    if c:
+        run_async(audio.stop_to_speech())
+
     mode = st.radio(
     '모드선택[채팅모드, 음성모드]',
     ('채팅모드', '음성모드'))
@@ -112,66 +119,64 @@ if st.session_state.check and st.session_state.mode == '채팅모드':
             try:
                 run = openapi.ask(client, st.session_state.assistant_id, st.session_state.thread_id, prompt)
                 time.sleep(1)
-                msg = openapi.result(client, run, st.session_state.thread_id)  
-                # # response = client.chat.completions.create(model="gpt-3.5-turbo", messages=st.session_state.messages)
-                # response = client.chat.completions.create(model="gpt-4-turbo-preview", messages=st.session_state.messages)
-                # msg = response.choices[0].message.content
-                # st.write(response,'xxxx')
-                st.session_state.messages.append({"role": "assistant", "content": msg})
-                # audio.text_to_speech(msg)
+                if run is not None:
+                    msg = openapi.result(client, run, st.session_state.thread_id)  
+                    if msg:
+                        print(msg)
+                        # # response = client.chat.completions.create(model="gpt-3.5-turbo", messages=st.session_state.messages)
+                        # response = client.chat.completions.create(model="gpt-4-turbo-preview", messages=st.session_state.messages)
+                        # msg = response.choices[0].message.content
+                        # st.write(response,'xxxx')
+                        st.session_state.messages.append({"role": "assistant", "content": msg})
+                        # audio.text_to_speech(msg)
             except Exception as e:
                 st.info("채팅서버 이상유무 확인이 필요합니다.")
                 # st.stop()
-            st.rerun()     
+            # st.rerun()     
 elif st.session_state.check and st.session_state.mode == '음성모드':
     if not st.session_state.sound:
         st.title("💬 음성모드 입니다.")
         st.caption("🚀 Selected sound mode by OpenAI LLM")
-        msg = "음성모드 입니다. 무엇을 도와 드릴까요?"
-        audio.text_to_speech(msg)
-    # while True:
+        if 'ment' not in st.session_state:
+            st.session_state.ment = "음성모드 입니다. 무엇을 도와 드릴까요?"
+            run_async(audio.text_to_speech(st.session_state.ment))
     with st.spinner('음성모드...'):
         if "messages" not in st.session_state:
-            st.session_state.messages = [{"role": "assistant", "content": msg}]
+            st.session_state.messages = [{"role": "assistant", "content": st.session_state.ment}]
 
         for msg in reversed(st.session_state.messages):
             st.chat_message(msg["role"]).write(msg["content"])
-
-        success,prompt = audio.speech_to_text()
-        if success:
+        exited, prompt = run_async(audio.handle_voice_command())
+        if exited:
+            if prompt == '종료':
+                run_async(audio.text_to_speech('프로그램을 종료합니다.'))
+                run_async(audio.stop_to_speech())
+                util.kill_exe()
+                util.kill_exe('streamlit.exe')
+                util.kill_exe('python.exe')
+        
             client = openapi.client_connect(st.session_state.api_key)
             if client is None:
                 st.info("API 키가 무효합니다. 올바른 API 키를 확인하십시오.")
                 st.stop()
-            if '종료' in prompt:
-                audio.text_to_speech('프로그램을 종료합니다.')
-                audio.stop_to_speech()
-                util.kill_exe()
-                util.kill_exe('streamlit.exe')
-                util.kill_exe('python.exe')
+
             if "assistant_id" not in st.session_state:
                 st.session_state.assistant_id,st.session_state.thread_id = openapi.isrelations(client,st.session_state.api_key,st.session_state.id)
-            # st.session_state.messages.append({"role": "user", "content": prompt})
-            # st.chat_message("user").write(prompt)
-            audio.text_to_speech(prompt)
+            run_async(audio.text_to_speech(prompt))
             try:
+                print(st.session_state.assistant_id,st.session_state.thread_id)
                 run = openapi.ask(client, st.session_state.assistant_id, st.session_state.thread_id, prompt)
-                time.sleep(1)
-                msg = openapi.result(client, run, st.session_state.thread_id)  
-                # # response = client.chat.completions.create(model="gpt-3.5-turbo", messages=st.session_state.messages)
-                # response = client.chat.completions.create(model="gpt-4-turbo-preview", messages=st.session_state.messages)
-                # msg = response.choices[0].message.content
-                # st.write(response,'xxxx')
-                st.session_state.messages.append({"role": "assistant", "content": msg})
-                # st.chat_message("assistant").write(msg)
-                
-                audio.text_to_speech(msg)
-                st.session_state.sound=True
+                if run.status == 'failed':
+                    run_async(audio.text_to_speech('실패'))
+                else:
+                    msg = openapi.result(client, run, st.session_state.thread_id)  
+                    if msg:
+                        st.session_state.messages.append({"role": "assistant", "content": msg})
+                        run_async(audio.text_to_speech(msg))
+                        st.session_state.sound=True
             except Exception as e:
                 st.info("채팅서버 이상유무 확인이 필요합니다.")
-                # st.stop()
-            time.sleep(1)
-        st.rerun()             
+        # st.rerun()             
 
 
 

@@ -300,153 +300,155 @@ def decision(current_price,buy_price,start_price,high_price):
         low_price = high_price - (high_price * .03)
         if current_price == low_price:
             return 'sell',100   
-
-# 자동매매 시작
-try:
-    h = common.Hook()  # 종료 또 데이타 조회 f4,f2: 각각 종료,데이타조회    
-    h.start()   # 쓰레드 실행
-    now = datetime.datetime.now().date()
-    if common.istoken():
-        token = common.read('token')[-1]
-        if token[0] == str(now):
-            ACCESS_TOKEN = token[1]
-        else:
-            ACCESS_TOKEN = get_access_token()
-            common.write('token',str(now) ,ACCESS_TOKEN)
- 
-    symbol_list = codes() # 매수 희망 종목 리스트
-    bought_list = [] # 매수 완료된 종목 리스트   
-    bought_price = dict()
+def main():
+    # 자동매매 시작
+    try:
+        h = common.Hook()  # 종료 또 데이타 조회 f4,f2: 각각 종료,데이타조회    
+        h.start()   # 쓰레드 실행
+        now = datetime.datetime.now().date()
+        if common.istoken():
+            token = common.read('token')[-1]
+            if token[0] == str(now):
+                ACCESS_TOKEN = token[1]
+            else:
+                ACCESS_TOKEN = get_access_token()
+                common.write('token',str(now) ,ACCESS_TOKEN)
     
-    total_cash = get_balance() # 보유 현금 조회
-    stock_dict = get_stock_balance() # 보유 주식 조회
-    for sym in stock_dict.keys():
-        bought_list.append(sym)
-
-    target_buy_count = 3 # 매수할 종목 수
-    buy_percent = 1.0 / target_buy_count # 종목당 매수 금액 비율
-    soldout = False 
-    buy_amount = total_cash * buy_percent  # 종목별 주문 금액 계산
-
-    send_message("===국내 주식 자동매매 프로그램을 시작합니다===")
-    while True:
-        t_now = datetime.datetime.now()
-        t_9 = t_now.replace(hour=9, minute=0, second=0, microsecond=0)
-        t_start = t_now.replace(hour=9, minute=5, second=0, microsecond=0)
-        t_sell = t_now.replace(hour=15, minute=15, second=0, microsecond=0)
-        t_exit = t_now.replace(hour=15, minute=20, second=0,microsecond=0)
-        today = datetime.datetime.today().weekday()
-        if h.event == 'f4':  # h.event가 True이면(f4 입력받은 경우) 종료
-            break
-        if h.event == 'f2':
-            stock_list = common.read('trade')
-            for l in stock_list:
-                print(l)
-            h.event=''
-
-        if today == 5 or today == 6:  # 토요일이나 일요일이면 자동 종료
-            send_message("주말이므로 프로그램을 종료합니다.")
-            break
-        if t_9 < t_now < t_start and soldout == False: # 잔여 수량 매도
-            for sym, qty in stock_dict.items():
-                sell(sym, qty)
-                common.write('trade',sym,current_price,-qty,str(now),'sell')
-            soldout == True
-            bought_list = []
-            stock_dict = get_stock_balance()
-
-        if t_start < t_now < t_sell :  # AM 09:05 ~ PM 03:15 : 매수, 매도
-
-
-
-            for sym in symbol_list:
-                target_price = get_target_price(sym)
-                start_price = get_starting_price(sym)
-                current_price = get_current_price(sym)                
-                if len(bought_list) < target_buy_count:
-                    if sym in bought_list:
-                        continue
-
-                    if target_price < current_price:
-                        buy_qty = 0  # 매수할 수량 초기화
-                        buy_qty = int(buy_amount // current_price)
-                        buy_qty //= 3
-                        
-                        if buy_qty > 0:
-                            send_message(f"{sym} 목표가 달성({target_price} < {current_price}) 매수를 시도합니다.")
-                            result = buy(sym, buy_qty)
-                            common.write('trade',sym, current_price, buy_qty, str(now),'buy')
-                            if result:
-                                soldout = False
-                                # bought_list.append(sym)
-                                bought = dict()
-                                bought['buy_price'] = current_price
-                                bought['high_price'] = current_price
-                                bought_price[sym] = bought
-                                stock_dict = get_stock_balance() # 보유 주식 조회
-                                for sym in stock_dict.keys():
-                                    bought_list.append(sym)
-                                time.sleep(1)
-            time.sleep(1)
-
-            for sym in bought_list:
-                target_price = get_target_price(sym)
-                start_price = get_starting_price(sym)
-                current_price = get_current_price(sym)                
-                bought = bought_price.get(sym)
-                high_price = bought.get('high_price')
-                buy_price = bought.get('buy_price')
-                sell,per = decision(current_price,buy_price,start_price,high_price)
-                if sell:
-                   qty = 0  # 보유수량
-                   sell_qty = 0
-                   qty = stock_dict.get(sym)
-                   sell_qty = int(qty * (per / 100))
-                #    qty = int(buy_amount // current_price)
-                   sell(sym, sell_qty)
-                   common.write('trade',sym, current_price, -qty, str(now),'sell')
-                   stock_dict = get_stock_balance() # 보유 주식 조회
-                   for sym in stock_dict.keys():
-                     bought_list.append(sym)                   
-                   time.sleep(1)
-                else:
-                    bought = bought_price.get(sym)
-                    if bought:
-                        high_price = bought.get('high_price')
-                        if current_price > high_price:
-                            bought['high_price'] = current_price
-                            bought_price[sym] = bought
-
-                    time.sleep(1)
+        symbol_list = codes() # 매수 희망 종목 리스트
+        bought_list = [] # 매수 완료된 종목 리스트   
+        bought_price = dict()
         
-            # if t_now.minute == 30 and t_now.second <= 5: 
-            #     stock_dict = get_stock_balance() # 보유 주식 조회
-            #     for d in common.read('trade'):
-            #         print(d)
-            #     if not len(bought_list):
-            #         symbol_list = codes() # 매수 희망 종목 리스트
-            #     time.sleep(5)
+        total_cash = get_balance() # 보유 현금 조회
+        stock_dict = get_stock_balance() # 보유 주식 조회
+        for sym in stock_dict.keys():
+            bought_list.append(sym)
 
-        if t_sell < t_now < t_exit:  # PM 03:15 ~ PM 03:20 : 일괄 매도
-            if soldout == False:
-                stock_dict = get_stock_balance()
+        target_buy_count = 3 # 매수할 종목 수
+        buy_percent = 1.0 / target_buy_count # 종목당 매수 금액 비율
+        soldout = False 
+        buy_amount = total_cash * buy_percent  # 종목별 주문 금액 계산
+
+        send_message("===국내 주식 자동매매 프로그램을 시작합니다===")
+        while True:
+            t_now = datetime.datetime.now()
+            t_9 = t_now.replace(hour=9, minute=0, second=0, microsecond=0)
+            t_start = t_now.replace(hour=9, minute=5, second=0, microsecond=0)
+            t_sell = t_now.replace(hour=15, minute=15, second=0, microsecond=0)
+            t_exit = t_now.replace(hour=15, minute=20, second=0,microsecond=0)
+            today = datetime.datetime.today().weekday()
+            if h.event == 'f4':  # h.event가 True이면(f4 입력받은 경우) 종료
+                break
+            if h.event == 'f2':
+                stock_list = common.read('trade')
+                for l in stock_list:
+                    print(l)
+                h.event=''
+
+            if today == 5 or today == 6:  # 토요일이나 일요일이면 자동 종료
+                send_message("주말이므로 프로그램을 종료합니다.")
+                break
+            if t_9 < t_now < t_start and soldout == False: # 잔여 수량 매도
                 for sym, qty in stock_dict.items():
                     sell(sym, qty)
-                    common.write('trade',sym, current_price, -qty, str(now),'sell')
-
-                soldout = True
+                    common.write('trade',sym,current_price,-qty,str(now),'sell')
+                soldout == True
                 bought_list = []
+                stock_dict = get_stock_balance()
+
+            if t_start < t_now < t_sell :  # AM 09:05 ~ PM 03:15 : 매수, 매도
+
+
+
+                for sym in symbol_list:
+                    target_price = get_target_price(sym)
+                    start_price = get_starting_price(sym)
+                    current_price = get_current_price(sym)                
+                    if len(bought_list) < target_buy_count:
+                        if sym in bought_list:
+                            continue
+
+                        if target_price < current_price:
+                            buy_qty = 0  # 매수할 수량 초기화
+                            buy_qty = int(buy_amount // current_price)
+                            buy_qty //= 3
+                            
+                            if buy_qty > 0:
+                                send_message(f"{sym} 목표가 달성({target_price} < {current_price}) 매수를 시도합니다.")
+                                result = buy(sym, buy_qty)
+                                common.write('trade',sym, current_price, buy_qty, str(now),'buy')
+                                if result:
+                                    soldout = False
+                                    # bought_list.append(sym)
+                                    bought = dict()
+                                    bought['buy_price'] = current_price
+                                    bought['high_price'] = current_price
+                                    bought_price[sym] = bought
+                                    stock_dict = get_stock_balance() # 보유 주식 조회
+                                    for sym in stock_dict.keys():
+                                        bought_list.append(sym)
+                                    time.sleep(1)
                 time.sleep(1)
-        if t_exit < t_now:  # PM 03:20 ~ :프로그램 종료
-            for d in common.read('trade'):
-                print(d)
-            send_message("프로그램을 종료합니다.")
-            break
+
+                for sym in bought_list:
+                    target_price = get_target_price(sym)
+                    start_price = get_starting_price(sym)
+                    current_price = get_current_price(sym)                
+                    bought = bought_price.get(sym)
+                    high_price = bought.get('high_price')
+                    buy_price = bought.get('buy_price')
+                    sell,per = decision(current_price,buy_price,start_price,high_price)
+                    if sell:
+                    qty = 0  # 보유수량
+                    sell_qty = 0
+                    qty = stock_dict.get(sym)
+                    sell_qty = int(qty * (per / 100))
+                    #    qty = int(buy_amount // current_price)
+                    sell(sym, sell_qty)
+                    common.write('trade',sym, current_price, -qty, str(now),'sell')
+                    stock_dict = get_stock_balance() # 보유 주식 조회
+                    for sym in stock_dict.keys():
+                        bought_list.append(sym)                   
+                    time.sleep(1)
+                    else:
+                        bought = bought_price.get(sym)
+                        if bought:
+                            high_price = bought.get('high_price')
+                            if current_price > high_price:
+                                bought['high_price'] = current_price
+                                bought_price[sym] = bought
+
+                        time.sleep(1)
+            
+                # if t_now.minute == 30 and t_now.second <= 5: 
+                #     stock_dict = get_stock_balance() # 보유 주식 조회
+                #     for d in common.read('trade'):
+                #         print(d)
+                #     if not len(bought_list):
+                #         symbol_list = codes() # 매수 희망 종목 리스트
+                #     time.sleep(5)
+
+            if t_sell < t_now < t_exit:  # PM 03:15 ~ PM 03:20 : 일괄 매도
+                if soldout == False:
+                    stock_dict = get_stock_balance()
+                    for sym, qty in stock_dict.items():
+                        sell(sym, qty)
+                        common.write('trade',sym, current_price, -qty, str(now),'sell')
+
+                    soldout = True
+                    bought_list = []
+                    time.sleep(1)
+            if t_exit < t_now:  # PM 03:20 ~ :프로그램 종료
+                for d in common.read('trade'):
+                    print(d)
+                send_message("프로그램을 종료합니다.")
+                break
 
 
-    h.join()    # 쓰레드 종료까지 대기
-    keyboard.unhook_all()  # 후킹 해제    
-except Exception as e:
-    send_message(f"[오류 발생]{e}")
-    time.sleep(1)
+        h.join()    # 쓰레드 종료까지 대기
+        keyboard.unhook_all()  # 후킹 해제    
+    except Exception as e:
+        send_message(f"[오류 발생]{e}")
+        time.sleep(1)
+if __name__ == "__main__":
+    main()    
   

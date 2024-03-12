@@ -4,41 +4,62 @@ from gtts import gTTS
 from pygame import mixer
 import speech_recognition as sr
 import time
+import audio
+
+
+
+# 재생 상태를 관리하는 전역 변수
 is_playing = False
-async def _text_to_speech(text, lang='ko'):
+
+async def text_to_speech(text, lang='ko'):
     global is_playing
-    loop = asyncio.get_running_loop()
 
-    def sync_text_to_speech():
-        global is_playing
-        try:
-            tts = gTTS(text=text, lang=lang)
-            mp3_fp = io.BytesIO()
-            tts.write_to_fp(mp3_fp)
-            mp3_fp.seek(0)
-            if not mixer.get_init():
-                mixer.init()
-            mixer.music.load(mp3_fp)
-            mixer.music.play()
-            is_playing = True
+    # mixer 초기화
+    if not mixer.get_init():
+        mixer.init()
 
-            while mixer.music.get_busy() and is_playing:
-                pass
+    # TTS 생성 및 재생
+    tts = gTTS(text=text, lang=lang)
+    mp3_fp = io.BytesIO()
+    tts.write_to_fp(mp3_fp)
+    mp3_fp.seek(0)
+    mixer.music.load(mp3_fp)
+    mixer.music.play()
+    is_playing = True
 
-        finally:
-            mixer.quit()
-            is_playing = False
+    # 음성 재생 상태를 체크하고 필요할 때 재생을 중지
+    while is_playing and mixer.music.get_busy():
+        await asyncio.sleep(0.1)  # 비동기적으로 대기
 
-    await loop.run_in_executor(None, sync_text_to_speech)
+    # 재생이 끝났거나 중지되면 mixer 정리
+    mixer.music.stop()
+    mixer.quit()
+    is_playing = False
 
-async def _stop_to_speech():
+async def stop_to_speech():
     global is_playing
-    if is_playing and mixer.get_init():
-        mixer.music.stop()
-        mixer.mixer.init()
-        is_playing = False
+    is_playing = False  # 재생 상태를 False로 설정하여 재생 중지
+async def handle_voice_command():
+    success, prompt = await speech_to_text()  # 음성 인식을 비동기적으로 실행
+    if success:
+        if '종료' in prompt:
+            await stop_to_speech()
+            # '종료' 명령이 인식되면, 애플리케이션에서 특정 메시지를 표시
+            return True, "종료"
+        else:
+            # 다른 음성 명령이 인식되면, 해당 명령을 처리
+            return True, f"{prompt}"
+    else:
+        # 음성 인식 실패
+        return False, "음성 인식에 실패했습니다."
+# async def stop_to_speech():
+#     global is_playing
+#     if is_playing and mixer.get_init():
+#         mixer.music.stop()
+#         # mixer.mixer.quit()
+#         is_playing = False
         
-async def _speech_to_text_async():
+async def speech_to_text():
     # 비동기 함수 내에서 실행될 동기 코드
     def sync_speech_to_text():
         r = sr.Recognizer()
@@ -61,31 +82,7 @@ async def _speech_to_text_async():
     # 현재 실행 중인 이벤트 루프를 가져옵니다.
     loop = asyncio.get_running_loop()
 
-    # 스레드 풀을 사용하여 동기 함수를 비동기적으로 실행합니다.
-    return await loop.run_in_executor(None, sync_speech_to_text)
-# 비동기 작업을 Streamlit에서 실행하기 위한 래퍼 함수
-def speech_to_text():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    return loop.run_until_complete(_speech_to_text_async())
-def stop_to_speech():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(_stop_to_speech())
-def text_to_speech(text):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(_text_to_speech(text))
+    # 스레드 풀을 사용하여 동기 함수를 비동기적으로 실행하고, 결과를 반환합니다.
+    success, result = await loop.run_in_executor(None, sync_speech_to_text)
+    return success, result  
 
-
-def main():
-    success,result = speech_to_text()
-    if success:
-        print(f"Recognized Text: {result}")
-    else:
-        print(f"Error: {result}")
-
-    text_to_speech('안녕하세요')
-
-if __name__ == "__main__":
-    main()
