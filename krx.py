@@ -3,19 +3,34 @@ import aiosqlite
 from datetime import datetime
 import pandas as pd
 import FinanceDataReader as fdr
+import concurrent
+from concurrent.futures import ThreadPoolExecutor
+
+# loop = asyncio.get_running_loop()
+# data = await loop.run_in_executor(None, lambda: fdr.DataReader(code, date))
+# import concurrent.futures
+# executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)  # 스레드 풀의 최대 크기를 10으로 설정
 
 # 비동기 I/O 작업을 위한 Semaphore 설정
-sem = asyncio.Semaphore(1000)
-
+sem = asyncio.Semaphore(10)
+# 전역에서 한 번만 생성
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 async def fetch_range(start_id, end_id):
     async with aiosqlite.connect('inet.db') as db:
         async with db.execute('SELECT code, name FROM krxs WHERE id BETWEEN ? AND ?', (start_id, end_id)) as cursor:
             rows = await cursor.fetchall()
             return rows
-
+        
 async def data_reader_async(code, name, date):
     async with sem:  # 동시 실행을 제한
-        data =  fdr.DataReader(code, date)
+        loop = asyncio.get_running_loop()
+        try:
+            data = await loop.run_in_executor(executor, lambda: fdr.DataReader(code, date))
+        except Exception as e:
+            # 적절한 에러 처리
+            print(f"Error fetching data: {e}")
+            return None
+
         data['Code'] = code
         data['Name'] = name
         return data
@@ -37,7 +52,7 @@ async def process_data_ranges(id_ranges):
     data_results = await asyncio.gather(*fdr_tasks)
     return data_results
 
-async def main():
+async def main_asyn():
     print(datetime.now())
     # ID 범위 리스트 세분화
     id_ranges = [(i, i + 249) for i in range(1, 2554, 250)]
@@ -47,5 +62,8 @@ async def main():
     all_df = pd.concat(results, ignore_index=True)
     print(all_df)
     print(datetime.now())
-
-asyncio.run(main())
+def main():
+    asyncio.run(main_asyn())
+    executor.shutdown()
+if __name__ == "__main__":
+    main()
