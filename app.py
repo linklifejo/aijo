@@ -301,17 +301,20 @@ def main():
         data = {} # 수정할 데이터를 저장할 딕셔너리
         st.session_state.selected_id = 0
         table = st.selectbox("Choose Table", ["employees", "customers", "members", "apikeys", "assistants", "threads","files","relations"])
+        query = f'SELECT * FROM {table}'
+        # queryToDataframe 함수를 사용하여 데이터를 가져옵니다.
+        query_data = queryToDataframe(query)
+        # 데이터가 없는 경우를 확인합니다.
+        if len(query_data) > 0:
+            options = ["Select..."] + [f"{row['id']} - {row['description']}" for index, row in query_data.iterrows()]
+            selected = st.selectbox("선택", options=options)
+            if selected != "Select...":
+                st.session_state.selected_id = int(selected.split(" - ")[0])
+                row = query_data[query_data['id'] == st.session_state.selected_id].iloc[0]
+                query_data = queryByField(table, 'id', st.session_state.selected_id)
+                print(len(query_data))
         with st.form(key='update_form'):
-            query = f'SELECT * FROM {table}'
-            # queryToDataframe 함수를 사용하여 데이터를 가져옵니다.
-            query_data = queryToDataframe(query)
-            # 데이터가 없는 경우를 확인합니다.
             if len(query_data) > 0:
-                options = ["Select..."] + [f"{row['id']} - {row['description']}" for index, row in query_data.iterrows()]
-                selected = st.selectbox("선택", options=options)
-                if selected != "Select...":
-                    st.session_state.selected_id = int(selected.split(" - ")[0])
-                    row = query_data[query_data['id'] == st.session_state.selected_id].iloc[0]
                 # 사용자 입력을 기반으로 data 딕셔너리를 채움
                 for column in query_data.columns:
                     if column == 'id':
@@ -319,15 +322,12 @@ def main():
                     else:
                         # Streamlit의 입력 필드로부터 값을 받아 data 딕셔너리에 저장
                         data[column] = st.text_input(column, value=query_data[column].values[0])
-                    
 
             submit_button = st.form_submit_button(label='Update Data')
             if submit_button:
-                if len(data) > 0:
+                if st.session_state.selected_id != 0:
                     updateData(table, data, "id", st.session_state.selected_id)
                     st.success("Data updated successfully!")
-                else:
-                    st.write('수정할 데이타가 없습니다.')
     elif operation == "Delete":
         table = st.selectbox("Choose Table", ["employees", "customers", "members", "apikeys", "assistants", "threads","files","relations"])
         with st.form(key='delete_form'):
@@ -342,8 +342,9 @@ def main():
                     st.session_state.selected_id = int(selected.split(" - ")[0])
             submit_button = st.form_submit_button(label='Delete Data')
             if submit_button:
-                deleteData(table, "id", st.session_state.selected_id)
-                st.success("Data deleted successfully!")
+                if st.session_state.selected_id:
+                    deleteData(table, "id", st.session_state.selected_id)
+                    st.success("Data deleted successfully!")
 
     elif operation == "Select":
         table = st.selectbox("Choose Table to View", ["employees", "customers", "members", "apikeys", "assistants", "threads","files","relations"])

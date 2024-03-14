@@ -6,14 +6,8 @@ import FinanceDataReader as fdr
 import concurrent
 from concurrent.futures import ThreadPoolExecutor
 
-# loop = asyncio.get_running_loop()
-# data = await loop.run_in_executor(None, lambda: fdr.DataReader(code, date))
-# import concurrent.futures
-# executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)  # 스레드 풀의 최대 크기를 10으로 설정
-
-# 비동기 I/O 작업을 위한 Semaphore 설정
+# 쓰레드 4개를 사용하며,각각 10개의 비동기를 실행함
 sem = asyncio.Semaphore(10)
-# 전역에서 한 번만 생성
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 async def fetch_range(start_id, end_id):
     async with aiosqlite.connect('inet.db') as db:
