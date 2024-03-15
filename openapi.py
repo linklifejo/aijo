@@ -36,32 +36,32 @@ def isrelations(client,apikey_id,member_id=1):
 # for file in client.files.list():
 #     print(f"[파일 ID] {file.id} [파일명] {file.filename}")
 
-# tools = [
-#     {
-#         "type":"function",
-#         "function": {
-#             "name":"oil_price",
-#             "description":"Get current oil prices - Dubai, WTI, and Brent",
-#             "parameters": {
-#                 "type":"object",
-#                 "properties": {}
-#             },
-#             "required": []
-#         }
-#     },
-#     {
-#         "type":"function",
-#         "function": {
-#             "name":"usd_krw",
-#             "description":"Get current exchange rate from USD to KRW",
-#             "parameters": {
-#                 "type":"object",
-#                 "properties": {}
-#             },
-#             "required": []
-#         }
-#     }
-# ]
+tools = [
+    {
+        "type":"function",
+        "function": {
+            "name":"oil_price",
+            "description":"Get current oil prices - Dubai, WTI, and Brent",
+            "parameters": {
+                "type":"object",
+                "properties": {}
+            },
+            "required": []
+        }
+    },
+    {
+        "type":"function",
+        "function": {
+            "name":"usd_krw",
+            "description":"Get current exchange rate from USD to KRW",
+            "parameters": {
+                "type":"object",
+                "properties": {}
+            },
+            "required": []
+        }
+    }
+]
 
 
 # 스키마를 정의합니다.

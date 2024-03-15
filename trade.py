@@ -398,17 +398,17 @@ def main():
                     buy_price = bought.get('buy_price')
                     sell,per = decision(current_price,buy_price,start_price,high_price)
                     if sell:
-                    qty = 0  # 보유수량
-                    sell_qty = 0
-                    qty = stock_dict.get(sym)
-                    sell_qty = int(qty * (per / 100))
-                    #    qty = int(buy_amount // current_price)
-                    sell(sym, sell_qty)
-                    common.write('trade',sym, current_price, -qty, str(now),'sell')
-                    stock_dict = get_stock_balance() # 보유 주식 조회
-                    for sym in stock_dict.keys():
-                        bought_list.append(sym)                   
-                    time.sleep(1)
+                        qty = 0  # 보유수량
+                        sell_qty = 0
+                        qty = stock_dict.get(sym)
+                        sell_qty = int(qty * (per / 100))
+                        #    qty = int(buy_amount // current_price)
+                        sell(sym, sell_qty)
+                        common.write('trade',sym, current_price, -qty, str(now),'sell')
+                        stock_dict = get_stock_balance() # 보유 주식 조회
+                        for sym in stock_dict.keys():
+                            bought_list.append(sym)                   
+                        time.sleep(1)
                     else:
                         bought = bought_price.get(sym)
                         if bought:
