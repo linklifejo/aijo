@@ -216,6 +216,23 @@ async def _queryByField(table, field_name, field_value):
     except aiosqlite.Error as e:
         logging.error(f"Error querying {table} by {field_name}: {e}")
         return pd.DataFrame()
+async def _queryIdRange(table, start_id, end_id):
+    try:
+        # IPO 날짜 문자열에서 날짜 부분을 추출하고, 이를 기준으로 60일이 지난 업체를 조회하는 쿼리
+        query = f"""
+            SELECT * 
+            FROM {table} 
+            WHERE id BETWEEN ? AND ?
+            AND DATE(SUBSTR(ipo, 1, 10)) <= DATE('now', '-60 days')
+        """
+        async with aiosqlite.connect(db_name) as db:
+            cursor = await db.execute(query, (start_id, end_id))
+            rows = await cursor.fetchall()
+            columns = [column[0] for column in cursor.description]
+            return pd.DataFrame(rows, columns=columns)
+    except aiosqlite.Error as e:
+        logging.error(f"Error querying {table} with IPO date range and ID range {start_id} to {end_id}: {e}")
+        return pd.DataFrame()
 
 async def _queryJoin(table1, table2, join_condition, select_fields, where_clause=None, where_params=None):
     try:
@@ -265,6 +282,8 @@ def queryToDataframe(query, params=None):
 
 def queryByField(table, field_name, field_value):
     return run_async(_queryByField(table, field_name, field_value))
+def queryIdRange(table, start_id, end_id):
+    return run_async(_queryIdRange(table, start_id, end_id))
 
 def queryJoin(table1, table2, join_condition, select_fields, where_clause=None, where_params=None):
     return run_async(_queryJoin(table1, table2, join_condition, select_fields, where_clause, where_params))

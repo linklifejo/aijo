@@ -16,53 +16,57 @@ from keras.callbacks import EarlyStopping
 
 def initialize():
     # 파일 삭제 또는 기타 초기화 작업 수행
-    if os.path.exists('integrated_stock_model.h5'):
-        os.remove('integrated_stock_model.h5')
-    if os.path.exists('stock_scaler.pkl'):
-        os.remove('stock_scaler.pkl')
-    if os.path.exists('stock_encoder.pkl'):
-        os.remove('stock_encoder.pkl')
-def get_company_codes(start_id, end_id):
-    codes = []
-    names = []
-    query = f"""
-    SELECT * 
+    for file in ['integrated_stock_model.h5', 'stock_scaler.pkl', 'stock_encoder.pkl']:
+        if os.path.exists(file):
+            os.remove(file)
+
+def get_company_codes():
+    companies = []
+    query = """
+    SELECT id, code, name
     FROM krxs 
     WHERE DATE(SUBSTR(ipo, 1, 10)) <= DATE('now', '-60 days')
     """
-    df = database.queryIdRange('krxs', start_id, end_id)
+    df = database.queryToDataframe(query)
     for _, row in df.iterrows():
-        codes.append(row['code'])
-        names.append(row['name'])
-    return codes, names
+        companies.append({
+            'id': row['id'],
+            'code': row['code'],
+            'name': row['name']
+        })
+    return companies
 
-def load_and_preprocess_data(codes, start_date):
+def load_and_preprocess_data(params):
+    start_date = params['start_date']
     scaler = MinMaxScaler(feature_range=(0, 1))
-    encoder = OneHotEncoder(handle_unknown='ignore')
-
-    encoded_codes = encoder.fit_transform(np.array(codes).reshape(-1, 1)).toarray()
+    encoder = OneHotEncoder()
 
     x_prices, x_companies, y_prices = [], [], []
-    for code in codes:
-        df = fdr.DataReader(code, start=start_date)
+    for info in params['infos']:
+        encoded_code = encoder.fit_transform(np.array(info['code']).reshape(-1, 1)).toarray()
+        df = fdr.DataReader(info['code'], start=start_date)
         if len(df) >= 60:
             prices = df['Close'].values.reshape(-1, 1)
             scaled_prices = scaler.fit_transform(prices)
             for i in range(60, len(scaled_prices)):
                 x_prices.append(scaled_prices[i-60:i, 0])
-                x_companies.append(encoded_codes[codes.index(code)])
+                x_companies.append(encoded_code)
                 y_prices.append(scaled_prices[i, 0])
 
     return np.array(x_prices), np.array(x_companies), np.array(y_prices), scaler, encoder
 
-def build_or_load_model(model_path, input_shape, num_companies):
+def build_or_load_model(params):
+    model_path = params['model_path']
+    input_shape = params['input_shape']
+    num_companies = params['num_companies']
+
     if os.path.exists(model_path):
         print("Loading existing model...")
         model = load_model(model_path)
     else:
         print("Building a new model...")
         price_input = Input(shape=input_shape, name='price_input')
-        company_input = Input(shape=(num_companies,), name='company_input')
+        company_input = Input(shape=(1,), name='company_input')
         lstm_layer = LSTM(50, return_sequences=False)(price_input)
         concat_layer = Concatenate()([lstm_layer, company_input])
         dense_layer = Dense(25, activation='relu')(concat_layer)
@@ -72,61 +76,46 @@ def build_or_load_model(model_path, input_shape, num_companies):
     model.compile(optimizer='adam', loss='mean_squared_error')
     return model
 
-def train_and_predict(start_id, end_id):
-    model_path = 'integrated_stock_model.h5'
-    x_prices, x_companies, y_prices, scaler, encoder = load_and_preprocess_data(CODES[start_id:end_id], START_DATE)
+def train_and_predict(params):
+    model_path = params['model_path']
+    x_prices, x_companies, y_prices, scaler, encoder = load_and_preprocess_data(params)
     
     if len(x_prices) > 0:
-        model = build_or_load_model(model_path, (60, 1), len(CODES[start_id:end_id]))
+        model = build_or_load_model(params)
+        
+        # 조기 종료 콜백 설정
         early_stopping = EarlyStopping(monitor='val_loss', patience=5, verbose=1, mode='min', restore_best_weights=True)
+        
         model.fit([x_prices, x_companies], y_prices, epochs=10, batch_size=32, validation_split=0.2, callbacks=[early_stopping])
         
         model.save(model_path)
         with open('stock_scaler.pkl', 'wb') as f:
             pickle.dump(scaler, f)
-        # encoder 저장
         with open('stock_encoder.pkl', 'wb') as f:
             pickle.dump(encoder, f)
 
-        print_predictions(model, scaler, encoder, start_id, end_id)
+        print_predictions(model, scaler, encoder, params)
     else:
         print("Insufficient data. Cannot train the model.")
 
-def print_predictions(model, scaler, encoder, start_id, end_id):
+def print_predictions(model, scaler, encoder, params):
     today = datetime.datetime.now().strftime('%Y-%m-%d')
-    decision_threshold = 0.05  # 5% 변동을 기준으로 결정
+    start_date = params['start_date']
+    for info in params['infos']:
+        df = fdr.DataReader(info['code'], start=start_date, end=today)
+        
+        # 데이터가 충분한 경우에만 예측을 진행
+        if len(df) >= 60:
+            last_60_days = df['Close'].values[-60:].reshape(-1, 1)
+            scaled_last_60_days = scaler.transform(last_60_days)  # 정규화된 데이터 사용
+            company_encoded = encoder.transform([[info['code']]]).toarray().reshape(1, -1)
 
-    for index, code in enumerate(CODES[start_id:end_id]):
-        try:
-            df = fdr.DataReader(code, start=START_DATE, end=today)
-            
-            if len(df) >= 60:
-                last_60_days = df['Close'].values[-60:].reshape(-1, 1)
-                current_price = df['Close'].values[-1]  # 가장 최근 가격
-
-                scaled_last_60_days = scaler.transform(last_60_days)
-                company_encoded = encoder.transform([[code]]).toarray().reshape(1, -1)
-
-                predicted_price_scaled = model.predict([scaled_last_60_days.reshape(1, 60, 1), company_encoded])
-                predicted_price = scaler.inverse_transform(predicted_price_scaled)[0][0]
-
-                print(f"업체 '{code} ({NAMES[start_id + index]})'의 현재 가격: {current_price:.2f}, 예측된 내일 'Close' 가격: {predicted_price:.2f}")
-
-                price_change = (predicted_price - current_price) / current_price
-
-                if price_change > decision_threshold:
-                    decision = "매수(Buy)"
-                elif price_change < -decision_threshold:
-                    decision = "매도(Sell)"
-                else:
-                    decision = "보류(Hold)"
-
-                print(f"결정: {decision}")
-
-            else:
-                print(f"업체 '{code} ({NAMES[start_id + index]})'에 대한 충분한 데이터가 없습니다.")
-        except ValueError:
-            print(f"업체 '{code}'에 대해 알 수 없는 카테고리입니다. 예측을 건너뜁니다.")
+            predicted_price_scaled = model.predict([scaled_last_60_days.reshape(1, 60, 1), company_encoded])
+            predicted_price = scaler.inverse_transform(predicted_price_scaled)
+            print(f"id: {info['id']} / {params['num_companies']}, code: {info['code']}, name: {info['name']}, 예측된 내일 'Close' 가격: {predicted_price[0][0]:.2f}")
+        else:
+            # 데이터가 충분하지 않은 업체에 대해서는 메시지 출력 후 다음 업체로 넘어감
+            print(f"id: {info['id']} / {params['num_companies']}, code: {info['code']}, name: {info['name']}, 충분한 데이터가 없습니다.")
 
 def predict_next_day_prices():
     model_path = 'integrated_stock_model.h5'
@@ -140,15 +129,20 @@ def predict_next_day_prices():
         with open(encoder_path, 'rb') as f:
             encoder = pickle.load(f)
 
-        print_predictions(model, scaler, encoder, 1, 2554)
+        infos = get_company_codes()
+        start_date = '2020-01-01'  # 임의로 선택한 시작 날짜
+        params = {'model_path': model_path, 'infos': infos, 'start_date': start_date}
+        print_predictions(model, scaler, encoder, params)
     else:
         print("필요한 모델 또는 전처리 파일이 없습니다. 먼저 학습 모드(F1)를 실행해 주세요.")
+
 def on_press(event):
     if event.name == 'f9':
         print('학습 모드...')
-        for i in range(1, num_companies + 1, 200):
-            end = min(i + 126, num_companies)  # 마지막 그룹에서는 127을 초과하지 않도록
-            train_and_predict(i, end)
+        infos = get_company_codes()
+        start_date = '2020-01-01'  # 임의로 선택한 시작 날짜
+        params = {'model_path': 'integrated_stock_model.h5', 'infos': infos, 'start_date': start_date, 'input_shape': (60, 1), 'num_companies': len(infos)}
+        train_and_predict(params)
         print(datetime.datetime.now())
     elif event.name == 'f10':
         print('예측 모드...')
@@ -163,11 +157,6 @@ def main():
     print("프로그램 실행 중... (F9: 학습/재학습, F10: 예측), F11: 초기화, Esc: 종료")
     keyboard.on_press(on_press)
     keyboard.wait('esc')  # 프로그램 종료를 위해 'esc' 키를 누를 때까지 대기 
-
-# 전역 상수로 코드와 이름 리스트 정의
-CODES, NAMES = get_company_codes(1, 2554)
-num_companies = len(CODES)
-START_DATE = '2020-01-01'
 
 if __name__ == '__main__':
     main()
