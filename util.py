@@ -6,7 +6,8 @@ class InetError(Exception):
 def my_function():
     raise InetError("A specific error message")
 
-
+def clear():
+    subprocess.run('cls', shell=True)
 def kill_exe(program='chrome.exe'):
     try:
         subprocess.run(['taskkill', '/F', '/IM', program], check=True)

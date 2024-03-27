@@ -2,172 +2,202 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import pandas_datareader as pdr
+import streamlit as st
+
 import datetime 
-from tensorflow import keras
+from tensorflow import keras 
 from keras.models import Model, Sequential, load_model
-from keras.layers import Dense, LSTM, Input, Concatenate
+from keras.layers import Dense, LSTM, Input, Concatenate,GRU, Dropout
 from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 import FinanceDataReader as fdr
 import pickle
 import database
 import keyboard
+import threading
+import util
+import asyncio
+import aioconsole  # 추가
 import os
+import sys
+import time
 from keras.callbacks import EarlyStopping
+from keras.callbacks import ModelCheckpoint
+def create_company_directory(company_code):
+    directory = f"./models/{company_code}"
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+def save_model(model, company_code):
+    directory = f"./models/{company_code}"
+    model.save(os.path.join(directory, "model.h5"))
+
+def load_model(company_code):
+    directory = f"./models/{company_code}"
+    model_path = os.path.join(directory, "model.h5")
+    if os.path.exists(model_path):
+        return keras.models.load_model(model_path)
+    else:
+        return None
+def files():
+    return {
+        'model': 'integrated_stock_model1.h5',
+        'scaler': 'stock_scaler1.pkl',
+        'encoder': 'stock_encoder1.pkl'
+    }
 
 def initialize():
-    # 파일 삭제 또는 기타 초기화 작업 수행
-    if os.path.exists('integrated_stock_model.h5'):
-        os.remove('integrated_stock_model.h5')
-    if os.path.exists('stock_scaler.pkl'):
-        os.remove('stock_scaler.pkl')
-    if os.path.exists('stock_encoder.pkl'):
-        os.remove('stock_encoder.pkl')
-def get_company_codes(start_id, end_id):
-    codes = []
-    names = []
-    query = f"""
-    SELECT * 
-    FROM krxs 
-    WHERE DATE(SUBSTR(ipo, 1, 10)) <= DATE('now', '-60 days')
+    for _, file in files().items():
+        if os.path.exists(file):
+            os.remove(file)
+
+def get_company_codes():
+    companies = []
+    query = """
+    SELECT id, code, name
+    FROM krxs
+    WHERE DATE(SUBSTR(ipo, 1, 10)) <= DATE('now', '-100 days') AND sector != '금융 지원 서비스업'
     """
-    df = database.queryIdRange('krxs', start_id, end_id)
+    df = database.queryToDataframe(query)
     for _, row in df.iterrows():
-        codes.append(row['code'])
-        names.append(row['name'])
-    return codes, names
+        companies.append({
+            'id': row['id'],
+            'code': row['code'],
+            'name': row['name']
+        })
+    return companies
 
-def load_and_preprocess_data(codes, start_date):
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    encoder = OneHotEncoder(handle_unknown='ignore')
+# 역정규화 함수 정의
+def denormalize(normalized_price, window):
+    return normalized_price * window[0] + window[0]
 
-    encoded_codes = encoder.fit_transform(np.array(codes).reshape(-1, 1)).toarray()
-
-    x_prices, x_companies, y_prices = [], [], []
-    for code in codes:
-        df = fdr.DataReader(code, start=start_date)
-        if len(df) >= 60:
-            prices = df['Close'].values.reshape(-1, 1)
-            scaled_prices = scaler.fit_transform(prices)
-            for i in range(60, len(scaled_prices)):
-                x_prices.append(scaled_prices[i-60:i, 0])
-                x_companies.append(encoded_codes[codes.index(code)])
-                y_prices.append(scaled_prices[i, 0])
-
-    return np.array(x_prices), np.array(x_companies), np.array(y_prices), scaler, encoder
-
-def build_or_load_model(model_path, input_shape, num_companies):
-    if os.path.exists(model_path):
-        print("Loading existing model...")
-        model = load_model(model_path)
-    else:
-        print("Building a new model...")
-        price_input = Input(shape=input_shape, name='price_input')
-        company_input = Input(shape=(num_companies,), name='company_input')
-        lstm_layer = LSTM(50, return_sequences=False)(price_input)
-        concat_layer = Concatenate()([lstm_layer, company_input])
-        dense_layer = Dense(25, activation='relu')(concat_layer)
-        output_layer = Dense(1, activation='linear')(dense_layer)
-        model = Model(inputs=[price_input, company_input], outputs=output_layer)
-    
-    model.compile(optimizer='adam', loss='mean_squared_error')
+# LSTM 모델 구성 및 컴파일
+def build_lstm_model(input_shape):
+    model = Sequential()
+    model.add(Input(shape=input_shape))  # Use an Input layer to specify the input shape
+    model.add(LSTM(50, return_sequences=True))
+    model.add(LSTM(64, return_sequences=False))
+    model.add(Dense(1, activation='linear'))
+    model.compile(loss='mse', optimizer='rmsprop')
     return model
 
-def train_and_predict(start_id, end_id):
-    model_path = 'integrated_stock_model.h5'
-    x_prices, x_companies, y_prices, scaler, encoder = load_and_preprocess_data(CODES[start_id:end_id], START_DATE)
-    
-    if len(x_prices) > 0:
-        model = build_or_load_model(model_path, (60, 1), len(CODES[start_id:end_id]))
-        early_stopping = EarlyStopping(monitor='val_loss', patience=5, verbose=1, mode='min', restore_best_weights=True)
-        model.fit([x_prices, x_companies], y_prices, epochs=10, batch_size=32, validation_split=0.2, callbacks=[early_stopping])
-        
-        model.save(model_path)
-        with open('stock_scaler.pkl', 'wb') as f:
-            pickle.dump(scaler, f)
-        # encoder 저장
-        with open('stock_encoder.pkl', 'wb') as f:
-            pickle.dump(encoder, f)
-
-        print_predictions(model, scaler, encoder, start_id, end_id)
-    else:
-        print("Insufficient data. Cannot train the model.")
-
-def print_predictions(model, scaler, encoder, start_id, end_id):
+def load_data(code):
+    start_date = (datetime.datetime.now() - datetime.timedelta(days=1000)).strftime('%Y-%m-%d')
     today = datetime.datetime.now().strftime('%Y-%m-%d')
-    decision_threshold = 0.05  # 5% 변동을 기준으로 결정
+    data = fdr.DataReader(st.session_state.code, start=start_date, end=today)
+    return data
 
-    for index, code in enumerate(CODES[start_id:end_id]):
-        try:
-            df = fdr.DataReader(code, start=START_DATE, end=today)
-            
-            if len(df) >= 60:
-                last_60_days = df['Close'].values[-60:].reshape(-1, 1)
-                current_price = df['Close'].values[-1]  # 가장 최근 가격
+def train_test_data(data):
+    # 종가 사용
+    close_prices = data['Close'].values
 
-                scaled_last_60_days = scaler.transform(last_60_days)
-                company_encoded = encoder.transform([[code]]).toarray().reshape(1, -1)
+    # 시퀀스 길이 설정
+    seq_len = 60
 
-                predicted_price_scaled = model.predict([scaled_last_60_days.reshape(1, 60, 1), company_encoded])
-                predicted_price = scaler.inverse_transform(predicted_price_scaled)[0][0]
+    # 시퀀스 데이터 생성
+    result = []
+    for index in range(len(close_prices) - seq_len):
+        result.append(close_prices[index: index + seq_len + 1])
 
-                print(f"업체 '{code} ({NAMES[start_id + index]})'의 현재 가격: {current_price:.2f}, 예측된 내일 'Close' 가격: {predicted_price:.2f}")
+    # 정규화
+    normalized_data = []
+    for window in result:
+        normalized_window = [((float(p) / float(window[0])) - 1) for p in window]
+        normalized_data.append(normalized_window)
 
-                price_change = (predicted_price - current_price) / current_price
+    result = np.array(normalized_data)
 
-                if price_change > decision_threshold:
-                    decision = "매수(Buy)"
-                elif price_change < -decision_threshold:
-                    decision = "매도(Sell)"
-                else:
-                    decision = "보류(Hold)"
+    # 트레인 테스트 분리
+    row = int(round(result.shape[0] * 0.9))
+    train = result[:row, :]
+    np.random.shuffle(train)
 
-                print(f"결정: {decision}")
+    x_train = train[:, :-1]
+    x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
+    y_train = train[:, -1]
 
-            else:
-                print(f"업체 '{code} ({NAMES[start_id + index]})'에 대한 충분한 데이터가 없습니다.")
-        except ValueError:
-            print(f"업체 '{code}'에 대해 알 수 없는 카테고리입니다. 예측을 건너뜁니다.")
+    x_test = result[row:, :-1]
+    x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
+    y_test = result[row:, -1]
+    return x_train, y_train, x_test, y_test, close_prices, seq_len
 
-def predict_next_day_prices():
-    model_path = 'integrated_stock_model.h5'
-    scaler_path = 'stock_scaler.pkl'
-    encoder_path = 'stock_encoder.pkl'
+def fit_model(x_train, y_train, count=1):
+    lstm_models = [build_lstm_model((60, 1)) for _ in range(count)]
+
+    # 각 모델에 대해 학습
+    for model in lstm_models:
+        model.fit(x_train, y_train, epochs=10, batch_size=64, verbose=1)
+    return lstm_models
+
+def predict_model(x_test, lstm_models, close_prices,seq_len):
+    # 각 모델로부터 예측 수행
+    predictions = np.array([model.predict(x_test) for model in lstm_models])
+    # 예측값의 평균 계산
+    mean_predictions = np.mean(predictions, axis=0)
+    # 마지막 예측값을 역정규화하여 실제 가격으로 변환
+    last_window = close_prices[-seq_len-1:-1]  # Adjust for the correct window
+    predicted_price = denormalize(mean_predictions[-1], last_window)
+    return predicted_price, mean_predictions
+
+def decisions(predicted_price, close_prices):
+    # 예측된 가격 역변환 (첫 번째 특성만 사용)
+    price_change = (predicted_price - close_prices[-1]) / close_prices[-1]
+
+    decision_threshold = 0.01
+    decision = "보류(Hold)"
+    if price_change > decision_threshold:
+        decision = "매수(Buy)"
+    elif price_change < -decision_threshold:
+        decision = "매도(Sell)"
+    return decision
+
+def result(predicted_price, close_prices):
+    return decisions(predicted_price, close_prices)
+
+def show_decision(predicted_price, close_prices):
+    decision = result(predicted_price, close_prices)
+    st.write(f'현재가: {close_prices[-1]} , 예측가격: {int(predicted_price)} , 결정: {decision}')
+
+def show_chart(y_test, mean_predictions):
+    # 차트 그리기
+    fig = plt.figure(facecolor='white', figsize=(20, 10))
+    ax = fig.add_subplot(111)
+    ax.plot(y_test, label='True')
+    ax.plot(mean_predictions, label='Prediction')
+    ax.legend()
+    plt.show()
     
-    if os.path.exists(model_path) and os.path.exists(scaler_path) and os.path.exists(encoder_path):
-        model = load_model(model_path)
-        with open(scaler_path, 'rb') as f:
-            scaler = pickle.load(f)
-        with open(encoder_path, 'rb') as f:
-            encoder = pickle.load(f)
+def main():    
+    if 'code' not in st.session_state:
+        st.session_state.code = ''
+    # 함수 사용 예시
+    query = """
+        SELECT id, code, name
+        FROM krxs
+        WHERE DATE(SUBSTR(ipo, 1, 10)) <= DATE('now', '-100 days') AND sector != '금융 지원 서비스업'
+        """
+    # queryToDataframe 함수를 사용하여 데이터를 가져옵니다.
+    query_data = database.queryToDataframe(query)
+    # 데이터가 없는 경우를 확인합니다.
+    if len(query_data) > 0:
+        options = ["Select..."] + [f"{row['code']} - {row['name']}" for index, row in query_data.iterrows()]
+        selected = st.selectbox("선택", options=options)
+    if selected != "Select...":
+        st.session_state.code = selected.split(" - ")[0]
+        create_company_directory(st.session_state.code)  # 각 업체별 디렉토리 생성
+        data = load_data(st.session_state.code )
+        x_train, y_train, x_test, y_test, close_prices, seq_len = train_test_data(data)
+        
+        # 학습된 모델 불러오기 또는 새로운 모델 학습
+        model = load_model(st.session_state.code)
+        if model is None:
+            lstm_models = fit_model(x_train, y_train, count=1)
+            model = lstm_models[0]
+            save_model(model, st.session_state.code)
+        else:
+            lstm_models = [model]
 
-        print_predictions(model, scaler, encoder, 1, 2554)
-    else:
-        print("필요한 모델 또는 전처리 파일이 없습니다. 먼저 학습 모드(F1)를 실행해 주세요.")
-def on_press(event):
-    if event.name == 'f9':
-        print('학습 모드...')
-        for i in range(1, num_companies + 1, 200):
-            end = min(i + 126, num_companies)  # 마지막 그룹에서는 127을 초과하지 않도록
-            train_and_predict(i, end)
-        print(datetime.datetime.now())
-    elif event.name == 'f10':
-        print('예측 모드...')
-        predict_next_day_prices()
-        print(datetime.datetime.now())
-    elif event.name == 'f11':
-        print('초기화 모드...')
-        initialize()
-
-def main():
-    print(datetime.datetime.now())
-    print("프로그램 실행 중... (F9: 학습/재학습, F10: 예측), F11: 초기화, Esc: 종료")
-    keyboard.on_press(on_press)
-    keyboard.wait('esc')  # 프로그램 종료를 위해 'esc' 키를 누를 때까지 대기 
-
-# 전역 상수로 코드와 이름 리스트 정의
-CODES, NAMES = get_company_codes(1, 2554)
-num_companies = len(CODES)
-START_DATE = '2020-01-01'
-
+        predicted_price, mean_predictions = predict_model(x_test, lstm_models, close_prices, seq_len)
+        show_decision(predicted_price, close_prices)
+        show_chart(y_test, mean_predictions)
 if __name__ == '__main__':
     main()

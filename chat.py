@@ -132,7 +132,7 @@ if st.session_state.check and st.session_state.mode == '채팅모드':
             except Exception as e:
                 st.info("채팅서버 이상유무 확인이 필요합니다.")
                 # st.stop()
-            # st.rerun()     
+            st.rerun()     
 elif st.session_state.check and st.session_state.mode == '음성모드':
     if not st.session_state.sound:
         st.title("💬 음성모드 입니다.")
@@ -164,7 +164,6 @@ elif st.session_state.check and st.session_state.mode == '음성모드':
                 st.session_state.assistant_id,st.session_state.thread_id = openapi.isrelations(client,st.session_state.api_key,st.session_state.id)
             run_async(audio.text_to_speech(prompt))
             try:
-                print(st.session_state.assistant_id,st.session_state.thread_id)
                 run = openapi.ask(client, st.session_state.assistant_id, st.session_state.thread_id, prompt)
                 if run.status == 'failed':
                     run_async(audio.text_to_speech('실패'))
@@ -176,7 +175,7 @@ elif st.session_state.check and st.session_state.mode == '음성모드':
                         st.session_state.sound=True
             except Exception as e:
                 st.info("채팅서버 이상유무 확인이 필요합니다.")
-        # st.rerun()             
+        st.rerun()             
 
 
 
