@@ -29,7 +29,7 @@ def create_csv(file_name):
 def write_csv(file_name, data):
     try:
         """Write data to a CSV file."""
-        with open(file_name, mode='a', newline='') as file:
+        with open(file_name, mode='w', newline='') as file:
             writer = csv.writer(file)
             writer.writerows(data)
     except:
@@ -48,10 +48,13 @@ def read_csv(file_name):
     return None            
 
 def istoken():
-    full_name = os.path.join('database', 'token.csv')
+    dir = 'database'
+    full_name = os.path.join(dir, 'token.csv')
     if os.path.exists(full_name):
         return True
     else: 
+        create_directory(dir)
+        create_csv(full_name)
         return False
       
 def delete_csv(file_name):

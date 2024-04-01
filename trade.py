@@ -307,13 +307,14 @@ def main():
         h.start()   # 쓰레드 실행
         now = datetime.datetime.now().date()
         if common.istoken():
-            token = common.read('token')[-1]
-            if token[0] == str(now):
-                ACCESS_TOKEN = token[1]
-            else:
-                ACCESS_TOKEN = get_access_token()
-                common.write('token',str(now) ,ACCESS_TOKEN)
-    
+             token = common.read('token')[-1]
+             if token[0] == str(now):
+                 ACCESS_TOKEN = token[1]
+             else:
+                 ACCESS_TOKEN = get_access_token()
+                 common.write('token',str(now) ,ACCESS_TOKEN)
+        # ACCESS_TOKEN ="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJ0b2tlbiIsImF1ZCI6IjJjN2JiYjU0LThhNjctNGY4ZS1iODlhLTc2NGI5NWIzYmUwMyIsImlzcyI6InVub2d3IiwiZXhwIjoxNzEyMDM0NDQwLCJpYXQiOjE3MTE5NDgwNDAsImp0aSI6IlBTMFFKaHBMOWdVZ2xTSHM2V3QzbXJUdllUNG5iUmxyNmVxeSJ9.dPSZ_vpFWO5gQuczmKdfi1_v7IlHHQG6eIwPB3JZkBc43N-jb9wLUPGn-JPc4TXk-l0XqMmtsi0um-SGHPr6wQ"
+
         symbol_list = codes() # 매수 희망 종목 리스트
         bought_list = [] # 매수 완료된 종목 리스트   
         bought_price = dict()
