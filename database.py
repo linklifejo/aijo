@@ -137,6 +137,16 @@ async def _setupTables():
                         REFERENCES assistants(id)
                         ON DELETE CASCADE
                     );
+                CREATE TABLE IF NOT EXISTS predicts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        code TEXT NOT NULL UNIQUE,
+                        name TEXT,      
+                        predicted_date TEXT,                 
+                        decision TEXT,
+                        predicted_price INTEGER,
+                        close_price   INTEGER,
+                        percent       REAL                   
+                    );
             ''')
             await db.commit()
     except Exception as e:
@@ -189,7 +199,17 @@ async def _deleteData(table, condition_field, condition_value):
     except aiosqlite.Error as e:
         logging.error(f"Error deleting data from {table}: {e}")
         raise
-
+async def _deleteAllData(table):
+    try:
+        async with aiosqlite.connect(db_name) as db:
+            await db.execute("PRAGMA foreign_keys = ON")        
+            sql = f"DELETE FROM {table}"
+            await db.execute(sql)
+            await db.commit()
+        logging.info(f"Data deleted successfully from {table}.")
+    except aiosqlite.Error as e:
+        logging.error(f"Error deleting data from {table}: {e}")
+        raise
 async def _queryToDataframe(query, params=None):
     try:
         async with aiosqlite.connect(db_name) as db:
@@ -276,7 +296,8 @@ def updateData(table, data, condition_field, condition_value):
 
 def deleteData(table, condition_field, condition_value):
     run_async(_deleteData(table, condition_field, condition_value))
-
+def deleteAllData(table):
+    run_async(_deleteAllData(table))
 def queryToDataframe(query, params=None):
     return run_async(_queryToDataframe(query, params))
 

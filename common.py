@@ -3,6 +3,35 @@ import os
 import shutil
 import keyboard
 import threading
+# Running the sample program
+class Hook(threading.Thread):
+    def __init__(self):
+        super(Hook, self).__init__()  # 부모 클래스 __init__ 실행
+        self.daemon = True  # 데몬 쓰레드로 설정
+        self.event = False  # f4가 눌리면 event 발생
+        self.my_xy = []     # 좌표 저장 리스트
+        keyboard.unhook_all()  # 후킹 초기화
+        keyboard.add_hotkey('f4', print, args=['\n종료합니다'])  # f4가 눌리면 print 실행
+        keyboard.add_hotkey('f2', print, args=['\n[f2키 실행] 금일 주식거래내역 입니다.'])  # f2가 눌리면 print 실행
+        
+    def run(self):  # run 메소드 재정의
+        while True:
+            key = keyboard.read_hotkey(suppress=False)  # hotkey를 계속 읽음
+            if key == 'f4':  # f4 받은 경우
+                self.event = 'f4'  # event 클래스 변수를 True로 설정
+                break  # 반복문 탈출
+                # # print("\n", self.my_xy)
+
+                # with open(r"config.txt", "w") as f:
+                #     for i in self.my_xy:
+                #         f.write("{},{}\n".format(i[0], i[1]))
+                
+            
+            elif key == 'f2':
+                self.event = 'f2'  # event 클래스 변수를 True로 설정
+                # position = pyautogui.position()
+                # self.my_xy.append((position.x, position.y))
+
 # import pyautogui
 def create_directory(directory_name):
     """Create a new directory."""
@@ -47,15 +76,7 @@ def read_csv(file_name):
         print('read error')         
     return None            
 
-def istoken():
-    dir = 'database'
-    full_name = os.path.join(dir, 'token.csv')
-    if os.path.exists(full_name):
-        return True
-    else: 
-        create_directory(dir)
-        create_csv(full_name)
-        return False
+
       
 def delete_csv(file_name):
     """Delete a CSV file."""
@@ -108,33 +129,15 @@ def database():
     # read_csv(csv_file_name)
     # delete_csv(csv_file_name)
     # delete_directory(dir_name)
-
-# Running the sample program
-class Hook(threading.Thread):
-    def __init__(self):
-        super(Hook, self).__init__()  # 부모 클래스 __init__ 실행
-        self.daemon = True  # 데몬 쓰레드로 설정
-        self.event = False  # f4가 눌리면 event 발생
-        self.my_xy = []     # 좌표 저장 리스트
-        keyboard.unhook_all()  # 후킹 초기화
-        keyboard.add_hotkey('f4', print, args=['\n종료합니다'])  # f4가 눌리면 print 실행
-        keyboard.add_hotkey('f2', print, args=['\n[f2키 실행] 금일 주식거래내역 입니다.'])  # f2가 눌리면 print 실행
-        
-    def run(self):  # run 메소드 재정의
-        while True:
-            key = keyboard.read_hotkey(suppress=False)  # hotkey를 계속 읽음
-            if key == 'f4':  # f4 받은 경우
-                self.event = 'f4'  # event 클래스 변수를 True로 설정
-                break  # 반복문 탈출
-                # # print("\n", self.my_xy)
-
-                # with open(r"config.txt", "w") as f:
-                #     for i in self.my_xy:
-                #         f.write("{},{}\n".format(i[0], i[1]))
-                
-            
-            elif key == 'f2':
-                self.event = 'f2'  # event 클래스 변수를 True로 설정
-                # position = pyautogui.position()
-                # self.my_xy.append((position.x, position.y))
+def istoken():
+    dir_name = 'database'
+    if not os.path.exists(dir_name):
+        create_directory(dir_name)
+    full_name = os.path.join(dir_name, 'token.csv')
+    if os.path.exists(full_name):
+        return True
+    else:
+        create_csv(full_name)
+        return False
+    
 

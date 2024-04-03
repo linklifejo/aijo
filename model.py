@@ -159,26 +159,29 @@ def fit_model(x_train, y_train, count=1):
         model.fit(x_train, y_train, epochs=10, batch_size=64, verbose=1)
     return lstm_models
 
-def predict_model(x_test, lstm_models, close_prices,seq_len):
+def predict_model(x_test, lstm_models, close_prices, seq_len):
     # 각 모델로부터 예측 수행
     predictions = np.array([model.predict(x_test) for model in lstm_models])
     # 예측값의 평균 계산
     mean_predictions = np.mean(predictions, axis=0)
     # 마지막 예측값을 역정규화하여 실제 가격으로 변환
     last_window = close_prices[-seq_len-1:-1]  # Adjust for the correct window
-    predicted_price = denormalize(mean_predictions[-1], last_window)
+    predicted_price = denormalize(mean_predictions[-1][0], last_window)  # 배열에서 첫 번째 원소 추출
+    # 예측값을 반올림하여 정수로 변환
+    predicted_price = round(predicted_price)
     return predicted_price, mean_predictions
+
 
 def decisions(predicted_price, close_prices):
     # 예측된 가격 역변환 (첫 번째 특성만 사용)
     price_change = (predicted_price - close_prices[-1]) / close_prices[-1]
 
     decision_threshold = 0.01
-    decision = "보류(Hold)"
+    decision = "hold"
     if price_change > decision_threshold:
-        decision = "매수(Buy)"
+        decision = "buy"
     elif price_change < -decision_threshold:
-        decision = "매도(Sell)"
+        decision = "sell"
     return decision
 
 def result(predicted_price, close_prices):
@@ -187,6 +190,7 @@ def result(predicted_price, close_prices):
 def show_decision(predicted_price, close_prices):
     decision = result(predicted_price, close_prices)
     print(f'현재가: {close_prices[-1]} , 예측가격: {int(predicted_price)} , 결정: {decision}')
+    return  decision, predicted_price, close_prices[-1]
 
 def show_chart(y_test, mean_predictions):
     # 차트 그리기
@@ -285,21 +289,36 @@ def train_and_company():
         keyboard.unhook_key("q")  # 'q' 키 감지 해제
         is_working = False
         stop_training = False
-
+def start_training_thread():
+    training_thread = threading.Thread(target=train_and_company)
+    training_thread.start()
+    
 def buy_and_sell(code):
     model = custom_load_model(code)
-    print(model)
     if model is not None:
         lstm_models = [model]
         data = load_data(code )
         if data is not None:
             _, _, x_test, y_test, close_prices, seq_len = train_test_data(data)
             predicted_price, mean_predictions = predict_model(x_test, lstm_models, close_prices, seq_len)
-            return decisions(predicted_price, close_prices)
-    return None
-def start_training_thread():
-    training_thread = threading.Thread(target=train_and_company)
-    training_thread.start()
+            return show_decision(predicted_price, close_prices)
+    return None,None,None
+def calculate_percentage(predicted_value, actual_value):
+    if predicted_value is None or actual_value is None:
+        # 오류 메시지를 출력하거나, 기본값을 반환하거나, 예외를 발생시킵니다.
+        print("예측값 또는 실제값이 None입니다.")
+        return 0  # 또는 적절한 기본값 또는 예외 처리
+    else:
+        difference_percentage = ((predicted_value - actual_value) / actual_value) * 100
+        return round(difference_percentage)
+
+def buy_companies(chk='buy'):
+    query_data = database.queryByField('predicts', 'decision', chk)
+    data = []
+    for _,row in query_data.iterrows():
+        data.append(row['code'])
+    return data
+
 
 def main():
     keyboard.add_hotkey('f9', start_training_thread)  # 'f9'로 학습 시작 스레드를 호출

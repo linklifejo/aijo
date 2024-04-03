@@ -272,7 +272,6 @@ def sell(code="005930", qty="1"):
         send_message(f"[매도 실패]{str(res.json())}")
         return False
 
-# 종목,시가,시장가,매수가,매수량,매도량,
 
 # 판단 : 매도
 # 매도 인경우 : 종목코드,시가,매도가,시장가,수량
@@ -357,8 +356,6 @@ def main():
                 stock_dict = get_stock_balance()
 
             if t_start < t_now < t_sell :  # AM 09:05 ~ PM 03:15 : 매수, 매도
-
-
 
                 for sym in symbol_list:
                     target_price = get_target_price(sym)

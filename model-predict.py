@@ -16,13 +16,13 @@ def main():
     if len(query_data) > 0:
         options = ["Select..."] + [f"{row['code']} - {row['name']}" for index, row in query_data.iterrows()]
         selected = st.selectbox("선택", options=options)
-    if selected != "Select...":
-        st.session_state.code = selected.split(" - ")[0]
-        r = model.buy_and_sell(st.session_state.code)
-        
-        if r is not None:
-            st.write(r)
-        else:
-            st.write('No Model....')
+        if selected != "Select...":
+            st.session_state.code = selected.split(" - ")[0]
+            decision,predicted_price,close_price = model.buy_and_sell(st.session_state.code)
+            percent = model.calculate_percentage(predicted_price, close_price)
+            if decision is not None:
+                st.write(f'{decision},{predicted_price},{close_price},{percent}%')
+            else:
+                st.write('No Model....')
 if __name__ == '__main__':
     main()

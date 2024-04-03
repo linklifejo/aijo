@@ -3,8 +3,7 @@ import json
 import datetime
 import time
 import yaml
-import model
-import common
+
 with open('config.yaml', encoding='UTF-8') as f:
     _cfg = yaml.load(f, Loader=yaml.FullLoader)
 APP_KEY = _cfg['APP_KEY']
@@ -211,28 +210,8 @@ def sell(code="005930", qty="1"):
 
 # 자동매매 시작
 try:
-    # ACCESS_TOKEN = get_access_token()
-    now = datetime.datetime.now().date()
-    if common.istoken():
-        token = common.read('token')[-1]
-        if token[0] == str(now):
-            ACCESS_TOKEN = token[1]
-            print('로드')
-        else:
-            ACCESS_TOKEN = get_access_token()
-            common.write('token',str(now) ,ACCESS_TOKEN)
-            print('파일존재하고, 발급')
-
-    else:
-        ACCESS_TOKEN = get_access_token()
-        common.write('token',str(now) ,ACCESS_TOKEN)     
-        print('파일생성하고, 발급')
-
-    # symbol_list = ["005930","035720","000660","069500"] # 매수 희망 종목 리스트
-    symbol_list = model.build_lstm_model()
-    for code in symbol_list:
-        print(code)
-
+    ACCESS_TOKEN = get_access_token()
+    symbol_list = ["005930","035720","000660","069500"] # 매수 희망 종목 리스트
     bought_list = [] # 매수 완료된 종목 리스트
     total_cash = get_balance() # 보유 현금 조회
     stock_dict = get_stock_balance() # 보유 주식 조회

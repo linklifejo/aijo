@@ -2,7 +2,7 @@ import csv
 import sqlite3
 
 # CSV 파일 경로
-csv_file_path = '코스피.csv'  # 실제 CSV 파일 경로로 수정
+csv_file_path = '코스피.csv'  # 코스피,코스닥 수정해서 두개를 수동으로 생성
 market = csv_file_path.split('.')[0]
 
 # SQLite 데이터베이스 파일 경로
