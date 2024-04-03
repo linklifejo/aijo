@@ -326,8 +326,10 @@ try:
                             # 종목 정보 삭제
                             del stock_info[sym]
                         else:  # 분할매도
-                            sell(sym, sell_qty)
-                soldout = True
+                            sell_amount = int(qty * sell_qty / 100)  # 분할 매도할 수량 계산
+                            sell(sym, sell_amount)
+                if len(bought_list) == 0:
+                    soldout = True
                 time.sleep(1)
                 
         if t_sell < t_now < t_exit:  # PM 03:15 ~ PM 03:20 : 일괄 매도
