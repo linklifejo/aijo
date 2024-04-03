@@ -130,14 +130,11 @@ def database():
     # delete_csv(csv_file_name)
     # delete_directory(dir_name)
 def istoken():
-    dir_name = 'database'
-    if not os.path.exists(dir_name):
-        create_directory(dir_name)
-    full_name = os.path.join(dir_name, 'token.csv')
-    if os.path.exists(full_name):
-        return True
-    else:
-        create_csv(full_name)
+    token_path = 'database/token.csv'
+    if not os.path.exists(token_path):
+        os.makedirs(os.path.dirname(token_path), exist_ok=True)
+        create_csv(token_path)
         return False
+    return True
     
 
