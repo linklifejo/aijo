@@ -260,7 +260,7 @@ try:
     stock_info = {}
     bought_list = [] # 매수 완료된 종목 리스트
     ACCESS_TOKEN = get_access_token_if_needed()
-    symbol_list = model.build_lstm_model()
+    symbol_list = model.buy_companies()
     total_cash = get_balance() # 보유 현금 조회
     stock_dict = get_stock_balance() # 보유 주식 조회
     for sym in stock_dict.keys():
@@ -289,6 +289,7 @@ try:
             stock_dict = get_stock_balance()
         if t_start < t_now < t_sell:  # AM 09:05 ~ PM 03:15 : 매수 및 매도
             for sym in symbol_list:
+                print(sym)
                 if len(bought_list) < target_buy_count:
                     if sym in bought_list:
                         continue
