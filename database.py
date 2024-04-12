@@ -147,6 +147,16 @@ async def _setupTables():
                         close_price   INTEGER,
                         percent       REAL                   
                     );
+                CREATE TABLE IF NOT EXISTS trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT NOT NULL UNIQUE,
+                    trade_date TEXT,
+                    buy_price INTEGER,
+                    sell_price INTEGER,
+                    start_price   INTEGER,
+                    high_price   INTEGER,
+                    qty   INTEGER
+                    );                                
             ''')
             await db.commit()
     except Exception as e:

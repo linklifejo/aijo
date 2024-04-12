@@ -5,6 +5,7 @@ import time
 import yaml
 import model
 import common
+import database
 with open('config.yaml', encoding='UTF-8') as f:
     _cfg = yaml.load(f, Loader=yaml.FullLoader)
 APP_KEY = _cfg['APP_KEY']
@@ -83,7 +84,7 @@ def get_target_price(code="005930"):
     stck_hgpr = int(res.json()['output'][1]['stck_hgpr']) #전일 고가
     stck_lwpr = int(res.json()['output'][1]['stck_lwpr']) #전일 저가
     target_price = stck_oprc + (stck_hgpr - stck_lwpr) * 0.5
-    return target_price
+    return target_price, stck_oprc
 
 def get_stock_balance():
     """주식 잔고조회"""
@@ -220,20 +221,22 @@ def sell(code="005930", qty="1"):
 # 매수가 : buy_price
 # 매도가 : sell_price
 # code,qty,start_price,buy_price,high_price
-def decision(current_price,buy_price,start_price,high_price):
+def decision(current_price, buy_price, start_price, high_price):
     if current_price < start_price:
-        return 'sell',100
+        return 'sell', 100
     elif current_price > buy_price:
         up_price = buy_price + (buy_price * .05)
         if current_price >= up_price:
-            return 'sell',30
+            return 'sell', 30
     elif current_price < high_price:
         low_price = high_price - (high_price * .02)
         if current_price == low_price:
-            return 'sell',50
+            return 'sell', 50
         low_price = high_price - (high_price * .03)
         if current_price == low_price:
-            return 'sell',100   
+            return 'sell', 100
+    return None, 0  # 매도하지 않는 경우 None과 0 반환
+
 def get_access_token_if_needed():
     """토큰을 가져오거나 업데이트합니다."""
     now = datetime.datetime.now().date()
@@ -257,7 +260,6 @@ def get_access_token_if_needed():
 try:
     # symbol_list = ["005930","035720","000660","069500"] # 매수 희망 종목 리스트
     # 변수 초기화
-    stock_info = {}
     bought_list = [] # 매수 완료된 종목 리스트
     ACCESS_TOKEN = get_access_token_if_needed()
     symbol_list = model.buy_companies()
@@ -289,11 +291,10 @@ try:
             stock_dict = get_stock_balance()
         if t_start < t_now < t_sell:  # AM 09:05 ~ PM 03:15 : 매수 및 매도
             for sym in symbol_list:
-                print(sym)
-                if len(bought_list) < target_buy_count:
+                if len(bought_list) < target_buy_count-2:
                     if sym in bought_list:
                         continue
-                    target_price = get_target_price(sym)
+                    target_price,start_price = get_target_price(sym)
                     current_price = get_current_price(sym)
                     if target_price < current_price:
                         buy_qty = 0  # 매수할 수량 초기화
@@ -301,9 +302,18 @@ try:
                         if buy_qty > 0:
                             send_message(f"{sym} 목표가 달성({target_price} < {current_price}) 매수를 시도합니다.")
                             result = buy(sym, buy_qty)
+                            print(result)
                             if result:
+                                database.insertData('trades', {
+                                'code': sym,
+                                'trade_date': str(datetime.datetime.now().date()),
+                                'buy_price': current_price,
+                                'sell_price': 0,
+                                'start_price': start_price,
+                                'high_price': current_price,
+                                'qty': buy_qty
+                                })
                                 # 종목 정보 저장
-                                stock_info[sym] = {'qty': buy_qty, 'buy_price': current_price, 'start_price': start_price, 'high_price': high_price}
                                 soldout = False
                                 bought_list.append(sym)
                                 get_stock_balance()
@@ -315,20 +325,25 @@ try:
 
             if soldout == False:
                 for sym in bought_list:  # 매수 완료된 종목에 대해서만 매도 진행
-                    qty = stock_info[sym]['qty']
                     current_price = get_current_price(sym)
-                    buy_price = stock_info[sym]['buy_price']
-                    start_price = stock_info[sym]['start_price']
-                    high_price = stock_info[sym]['high_price']
-                    action, sell_qty = decision(current_price, buy_price, start_price, high_price, qty)
+                    query_data = database.queryByField('trades', 'code', sym)
+                    if len(query_data) > 0:
+                        for index, row in query_data.iterrows():
+                            qty = row['qty']
+                            buy_price = row['buy_price']
+                            high_price = row['high_price']
+                            start_price = row['start_price']
+
+                    action, sell_qty = decision(current_price, buy_price, start_price, high_price)
                     if action == 'sell' and sell_qty > 0:
                         if sell_qty == 100:  # 전량매도
                             sell(sym, qty)
-                            # 종목 정보 삭제
-                            del stock_info[sym]
+                            database.deleteData('trades', "code", sym)
                         else:  # 분할매도
                             sell_amount = int(qty * sell_qty / 100)  # 분할 매도할 수량 계산
                             sell(sym, sell_amount)
+                        database.updateData('trades', {'sell_price': current_price,'high_price': high_price,'qty': qty - sell_amount}, "code", sym)
+
                 if len(bought_list) == 0:
                     soldout = True
                 time.sleep(1)
@@ -338,6 +353,7 @@ try:
                 stock_dict = get_stock_balance()
                 for sym, qty in stock_dict.items():
                     sell(sym, qty)
+                    database.deleteData('trades', "code", sym)
                 soldout = True
                 bought_list = []
                 time.sleep(1)
