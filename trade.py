@@ -356,7 +356,10 @@ try:
                                 sell(sym, qty)
                                 database.deleteData('trades', "code", sym)
                             else:  # 분할매도
-                                sell_amount = int(qty * sell_qty / 100)  # 분할 매도할 수량 계산
+                                if qty > 1:
+                                    sell_amount = int(qty * sell_qty / 100)  # 분할 매도할 수량 계산
+                                else:
+                                    sell_amount = 1
                                 sell(sym, sell_amount)
                                 database.updateData('trades', {'sell_price': current_price,'high_price': high_price,'qty': qty - sell_amount}, "code", sym)
                         else:
