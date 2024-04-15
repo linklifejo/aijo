@@ -6,6 +6,7 @@ import yaml
 import model
 import common
 import database
+import util
 with open('config.yaml', encoding='UTF-8') as f:
     _cfg = yaml.load(f, Loader=yaml.FullLoader)
 APP_KEY = _cfg['APP_KEY']
@@ -279,11 +280,14 @@ def get_buy_quty(sym):
     target_price,start_price = get_target_price(sym)
     current_price = get_current_price(sym)
     query_amount, _ = get_trade_amount(sym) 
+    # if start_price > target_price:
     if target_price < current_price:
-        buy_qty = int(buy_amount * 0.1 // current_price)  # 10%의 비율로 매수
-        if buy_qty > 0 and buy_amount > query_amount:
-            send_message(f"{sym} 목표가 달성({target_price} < {current_price}) 매수를 시도합니다.")
-            return buy_qty, start_price
+        start_price_1per = int(start_price + (start_price * 0.01))
+        if start_price_1per > current_price:
+            buy_qty = int(buy_amount * 0.2 // current_price)  # 10%의 비율로 매수
+            if buy_qty > 0:
+                send_message(f"{sym} 목표가 달성({target_price} < {current_price}) 매수를 시도합니다.")
+                return buy_qty, start_price, current_price
     return buy_qty, start_price, current_price
 
 # 자동매매 시작
@@ -322,19 +326,32 @@ try:
         if t_start < t_now < t_sell:  # AM 09:05 ~ PM 03:15 : 매수 및 매도
             if len(bought_list) < target_buy_count:
                 for sym in symbol_list:
+                    query_amount, _ = get_trade_amount(sym)
+                    if query_amount is not None and query_amount >= buy_amount:
+                        continue
                     buy_qty, start_price, current_price = get_buy_quty(sym)
                     if buy_qty > 0:
                         result = buy(sym, buy_qty)
                         if result:
-                            database.insertData('trades', {
-                            'code': sym,
-                            'trade_date': str(datetime.datetime.now().date()),
-                            'buy_price': current_price,
-                            'sell_price': 0,
-                            'start_price': start_price,
-                            'high_price': current_price,
-                            'qty': buy_qty
-                            })
+                            if buy_qty > 0:
+                                qty, buy_price,sell_price, start_price,high_price = get_trade_info(sym)
+                                if qty is not None:
+                                    update_qty = buy_qty + qty
+                                    update_buy_price = int(((current_price * buy_qty) + (buy_price * qty)) / update_qty)
+                                    database.updateData('trades', {'qty':update_qty,'buy_price':update_buy_price,'sell_price':current_price}, "code", sym)
+                                
+                                else:
+                                    update_qty = buy_qty
+                                    update_buy_price = current_price
+                                    database.insertData('trades', {
+                                    'code': sym,
+                                    'trade_date': str(datetime.datetime.now().date()),
+                                    'buy_price': update_buy_price,
+                                    'sell_price': 0,
+                                    'start_price': start_price,
+                                    'high_price': current_price,
+                                    'qty': update_qty
+                                    })
                             # 종목 정보 저장
                             soldout = False
                             bought_list.append(sym)
@@ -350,6 +367,8 @@ try:
                     current_price = get_current_price(sym)
                     qty, buy_price,sell_price, start_price,high_price = get_trade_info(sym)
                     if qty is not None:
+                        util.clear()
+                        print(f'시가:{start_price},매입가:{buy_price},현재가:{current_price}')
                         action, sell_qty = decision(current_price, buy_price, start_price, high_price)
                         if action == 'sell' and sell_qty > 0:
                             if sell_qty == 100:  # 전량매도
@@ -364,8 +383,11 @@ try:
                                 database.updateData('trades', {'sell_price': current_price,'high_price': high_price,'qty': qty - sell_amount}, "code", sym)
                         else:
                             if current_price > high_price:
-                                database.updateData('trades', {'high_price': high_price}, "code", sym)
-
+                                print('high_price:',high_price)
+                                database.updateData('trades', {'sell_price':current_price,'high_price': current_price}, "code", sym)
+                            else:
+                                database.updateData('trades', {'sell_price':current_price}, "code", sym)
+                                print(buy_price,current_price)
                 if len(bought_list) == 0:
                     soldout = True
                 time.sleep(1)
