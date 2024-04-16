@@ -226,32 +226,24 @@ def sell(code="005930", qty="1"):
 def sell_decision(current_price, buy_price, start_price, high_price):
     if current_price < start_price:
         return 'sell', 100
-    elif current_price > buy_price:
+    elif current_price > buy_price and current_price == high_price:
         up_price = buy_price + (buy_price * .03)
         if current_price >= up_price:
-            return 'sell', 50
-    elif current_price > buy_price:
-        up_price = buy_price + (buy_price * .02)
+            return 'sell', 30
+    elif current_price > buy_price and current_price > high_price:
+        up_price = buy_price + (buy_price * .04)
         if current_price >= up_price:
-            return 'sell', 25   
-    elif current_price > buy_price:
-        up_price = buy_price + (buy_price * .01)
-        if current_price >= up_price:
-            return 'sell', 20    
-    elif current_price < buy_price:
-        lo_price = buy_price - (buy_price * .01)
-        if current_price < lo_price:
-            return 'sell', 50     
-    elif current_price < buy_price:
-        lo_price = buy_price - (buy_price * .03)
-        if current_price < lo_price:
-            return 'sell', 100                   
+            return 'sell', 50   
+    elif current_price > buy_price and current_price < high_price:
+        lo_price = buy_price + (buy_price * .01)
+        if current_price >= lo_price:
+            return 'sell', 100     
     return None, 0  # 매도하지 않는 경우 None과 0 반환
 
 def buy_decision(current_price, buy_price, start_price, high_price):
-    if current_price < buy_price:
-        lo_price = buy_price - (buy_price * .02)
-        if current_price < lo_price:
+    if current_price > start_price and current_price > buy_price and current_price > high_price:
+        lo_price = buy_price + (buy_price * .01)
+        if current_price >= lo_price:
             return 'buy', 20                   
     return None, 0  # 매도하지 않는 경우 None과 0 반환
 
@@ -307,7 +299,7 @@ try:
         if today == 5 or today == 6:  # 토요일이나 일요일이면 자동 종료
             send_message("주말이므로 프로그램을 종료합니다.")
             break
-        if t_9 < t_now < t_start and soldout == False: # 잔여 수량 매도
+        if t_9 < t_now < t_start: # 잔여 수량 매도
             stock_dict = get_stock_balance() # 보유 주식 조회
             for sym, qty in stock_dict.items():
                 sell(sym, qty)
@@ -338,7 +330,7 @@ try:
                     time.sleep(1)
             time.sleep(1)
 
-            #분할매도
+            #매도/분할매도
             stock_dict = get_stock_balance()
             for sym, qty in stock_dict.items():
                 current_price = get_current_price(sym)
@@ -389,8 +381,6 @@ try:
                             update_qty = buy_qty + qty
                             update_buy_price = int(((current_price * buy_qty) + (buy_price * qty)) / update_qty)
                             database.updateData('trades', {'qty':update_qty,'buy_price':update_buy_price,'sell_price':current_price}, "code", sym)
-                            soldout = False
-                            get_stock_balance()
                     time.sleep(1)
             time.sleep(1)
 
