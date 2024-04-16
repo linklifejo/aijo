@@ -313,10 +313,15 @@ def calculate_percentage(predicted_value, actual_value):
         return round(difference_percentage)
 
 def buy_companies(chk='buy'):
+    # 'decision' 필드가 제공된 'chk' 값과 일치하는 행을 데이터베이스에서 조회합니다.
     query_data = database.queryByField('predicts', 'decision', chk)
-    data = []
-    for _,row in query_data.iterrows():
-        data.append(row['code'])
+    
+    # 'percent' 열을 기준으로 데이터프레임을 내림차순으로 정렬합니다.
+    query_data_sorted = query_data.sort_values(by='percent', ascending=False)
+    
+    # 'code' 열을 리스트로 추출합니다.
+    data = query_data_sorted['code'].tolist()
+    
     return data
 
 
