@@ -31,6 +31,5 @@ def main():
                 'close_price': int(close_price),
                 'percent': percent
                 })
-
 if __name__ == '__main__':
     main()

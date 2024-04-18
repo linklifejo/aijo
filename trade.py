@@ -210,30 +210,22 @@ def sell(code="005930", qty="1"):
     else:
         send_message(f"[매도 실패]{str(res.json())}")
         return False
-# 판단 : 매도
-# 매도 인경우 : 종목코드,시가,매도가,시장가,수량
-# 1번매도 : 현재가 시가보다 작으면 전량매도(보유수량)
-# 2번매도 : 현재가 매입가 대비 5퍼 오른경우 보유수량의 30퍼 매도
-# 3번매도 : 현재가 고가 대비 2퍼 하락한경우 보유수량의 50퍼 매도
-# 4번매도 : 현재가 고가 대비 3퍼 하락한경우 보유수량의 전량매도
-# 시장가(현재가) : current_price
-# 시가   : start_price
-# 고가   : high_price
-# 매수가 : buy_price
-# 매도가 : sell_price
-# code,qty,start_price,buy_price,high_price
 
 def sell_decision(current_price, buy_price, start_price, high_price):
     if current_price < start_price:
         return 'sell', 1.0
     elif current_price < buy_price:
-        up_price = buy_price - (buy_price * .03)
-        if current_price < up_price:        
-            return 'sell', 0.5    
-    elif current_price < buy_price:
         up_price = buy_price - (buy_price * .01)
         if current_price < up_price:        
             return 'sell', 0.3    
+    elif current_price < buy_price:
+        up_price = buy_price - (buy_price * .02)
+        if current_price < up_price:        
+            return 'sell', 0.5    
+    elif current_price < buy_price:
+        up_price = buy_price - (buy_price * .03)
+        if current_price < up_price:        
+            return 'sell', 1.0    
     elif current_price > buy_price and current_price == high_price:
         up_price = buy_price + (buy_price * .03)
         if current_price >= up_price:
@@ -254,9 +246,9 @@ def buy_decision(current_price, buy_price, start_price, high_price):
         if current_price >= lo_price:
             return 'buy', 0.1    
     elif current_price < buy_price:
-        lo_price = buy_price - (buy_price * .02)
+        lo_price = buy_price - (buy_price * .005)
         if current_price < lo_price:
-            return 'buy', 0.2    
+            return 'buy', 0.1    
     return None, 0  # 매도하지 않는 경우 None과 0 반환
 
 def get_access_token_if_needed():
@@ -291,14 +283,13 @@ def get_trade_info(sym):
 
 # 자동매매 시작
 try:
-    # symbol_list = ["005930","035720","000660","069500"] # 매수 희망 종목 리스트
-    # 변수 초기화
     ACCESS_TOKEN = get_access_token_if_needed()
-    symbol_list = model.buy_companies()
     total_cash = get_balance() # 보유 현금 조회
-    target_buy_count = 5 # 매수할 종목 수
-    buy_percent = 0.2 # 종목당 매수 금액 비율
-    buy_amount = total_cash * buy_percent  # 종목별 주문 금액 계산
+
+    symbol_list = model.buy_companies()
+    target_buy_count = len(symbol_list) 
+    buy_percent = 1.0 / target_buy_count
+    buy_amount = total_cash * buy_percent
 
     send_message("===국내 주식 자동매매 프로그램을 시작합니다===")
     while True:
@@ -318,16 +309,17 @@ try:
         if t_start < t_now < t_sell :  # AM 09:05 ~ PM 03:15 : 매수
             for sym in symbol_list:
                 stock_dict = get_stock_balance() # 보유 주식 조회
-                if len(stock_dict) >= target_buy_count:
-                    break  # 최대 매수 종목 수에 도달하면 더 이상 매수하지 않음
-                if len(stock_dict) < target_buy_count:
+                if len(stock_dict) == target_buy_count:
+                    break
+                if sym in stock_dict.keys():
+                    continue
+                else:
                     target_price,start_price = get_target_price(sym)
                     current_price = get_current_price(sym)
                     lo_price = start_price + (start_price * .01)
                     if current_price > lo_price:
-                    # if target_price < current_price:
                         buy_qty = 0  # 매수할 수량 초기화
-                        buy_qty = int(buy_amount * 0.2 // current_price)
+                        buy_qty = int(buy_amount * 0.1 // current_price)
                         if buy_qty > 0:
                             send_message(f"{sym} 목표가 달성({target_price} < {current_price}) 매수를 시도합니다.")
                             result = buy(sym, buy_qty)
@@ -355,7 +347,7 @@ try:
                 current_price = get_current_price(sym)
                 _, buy_price,sell_price, start_price,high_price = get_trade_info(sym)
                 _, start_price = get_target_price(sym)
-                if qty:
+                if int(qty) > 0:
                     # util.clear()
                     r =current_price - buy_price
                     if r > 0:
@@ -363,28 +355,31 @@ try:
                     else:
                         rstring = '손실'
 
-                    print(f'분할매도:::시가:{start_price},매입가:{buy_price},현재가:{current_price},{rstring}:{r}')
                     action, sell_percent = sell_decision(current_price, buy_price, start_price, high_price)
                     if action == 'sell' and sell_percent > 0:
                         if sell_percent == 1.0:  # 전량매도
-                            print('전량매도 합니다.')
-                            sell(sym, int(qty))
-                            database.deleteData('trades', "code", sym)
+                            result = sell(sym, int(qty))
+                            if result:
+                                sell_amount = r * int(qty)
+                                print(f'*** 전량매도 *** {rstring} 이며, {sell_amount} 원 입니다. 매도수량은 {qty} 입니다.')
+                                database.deleteData('trades', "code", sym)
                         else:  # 분할매도
                             if int(qty) > 1:
-                                print('분할매도 합니다.')
                                 sell_qty = int(int(qty) * sell_percent)  # 분할 매도할 수량 계산
                                 if sell_qty == 0:
                                     sell_qty =1
                                 print('분할매도 수량:',sell_qty,buy_price,current_price,buy_price-current_price)
-                                sell(sym, sell_qty)
-                                stock_dict = get_stock_balance() # 보유 주식 조회
-                                if sym not in stock_dict.keys():
-                                    database.deleteData('trades', "code", sym)
-                                    continue
-                                if current_price > high_price:
-                                    high_price = current_price
-                                database.updateData('trades', {'qty':int(qty)-sell_qty,'sell_price': current_price,'high_price': high_price}, "code", sym)
+                                result = sell(sym, sell_qty)
+                                if result:
+                                    sell_amount = r * sell_qty
+                                    print(f'*** 분할매도 *** {rstring} 이며, {sell_amount} 원 입니다. 매도수량은{sell_qty} 입니다.')
+                                    stock_dict = get_stock_balance() # 보유 주식 조회
+                                    if sym not in stock_dict.keys():
+                                        database.deleteData('trades', "code", sym)
+                                        continue
+                                    if current_price > high_price:
+                                        high_price = current_price
+                                    database.updateData('trades', {'qty':int(qty)-sell_qty,'sell_price': current_price,'high_price': high_price}, "code", sym)
                                 
                     else:
                         if current_price > high_price:
@@ -400,7 +395,6 @@ try:
                 _, buy_price,sell_price, start_price,high_price = get_trade_info(sym)
                 _, start_price = get_target_price(sym)
                 if int(qty):
-                    print(f'분할매수::: 시가:{start_price},매입가:{buy_price},현재가:{current_price},{rstring}:{r}')
                     action, buy_percent = buy_decision(current_price, buy_price, start_price, high_price)
                     print(action,buy_percent)
                     # total_cash = get_balance()
@@ -408,7 +402,8 @@ try:
                         have_amount = (int(qty) * buy_price)
                         available_amount = buy_amount - have_amount
                         buy_qty = int(available_amount * buy_percent //current_price)  # 분할 매도할 수량 계산
-                        print(f'업체가용금액:{buy_amount},보유금액:{have_amount},매수량:{buy_qty}')
+                        print(f'시가는 {start_price} 이고, 이전 매수가는{buy_price} 입니다. 현재 매수가는 {current_price} 입니다.')
+                        print(f'이미 매수한 금액은 {have_amount} 이며, 매수가능금액은 {buy_amount-have_amount} 입니다. 현재 매수가능한 수량은 {(buy_amount-have_amount)//current_price} 인데, 매수하려는 수량은 {buy_qty} 입니다.')
                         if buy_qty > 0:
                             result = buy(sym, buy_qty)
                             if result:

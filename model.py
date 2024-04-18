@@ -319,10 +319,11 @@ def buy_companies(chk='buy'):
     # 'percent' 열을 기준으로 데이터프레임을 내림차순으로 정렬합니다.
     query_data_sorted = query_data.sort_values(by='percent', ascending=False)
     
-    # 'code' 열을 리스트로 추출합니다.
-    data = query_data_sorted['code'].tolist()
+    # 'code' 열에서 상위 3개 데이터만 추출합니다. 시장 상황에 따른...조정
+    top_data = query_data_sorted['code'].head(3).tolist()
     
-    return data
+    return top_data
+
 
 
 def main():
