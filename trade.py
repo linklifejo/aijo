@@ -1,4 +1,3 @@
-import requests
 import json
 import datetime
 import time
@@ -7,6 +6,8 @@ import model
 import common
 import database
 import util
+import requests
+from bs4 import BeautifulSoup
 with open('config.yaml', encoding='UTF-8') as f:
     _cfg = yaml.load(f, Loader=yaml.FullLoader)
 APP_KEY = _cfg['APP_KEY']
@@ -215,29 +216,26 @@ def sell_decision(current_price, buy_price, start_price, high_price):
     if current_price < start_price:
         return 'sell', 1.0
     elif current_price < buy_price:
-        up_price = buy_price - (buy_price * .01)
+        up_price = buy_price - (buy_price * .02)
         if current_price < up_price:        
             return 'sell', 0.3    
     elif current_price < buy_price:
-        up_price = buy_price - (buy_price * .02)
-        if current_price < up_price:        
-            return 'sell', 0.5    
-    elif current_price < buy_price:
         up_price = buy_price - (buy_price * .03)
         if current_price < up_price:        
-            return 'sell', 1.0    
+            return 'sell', 0.5    
     elif current_price > buy_price and current_price == high_price:
-        up_price = buy_price + (buy_price * .03)
+        up_price = buy_price + (buy_price * .01)
+        if current_price >= up_price:
+            return 'sell', 0.3    
+    elif current_price > buy_price and current_price == high_price:
+        up_price = buy_price + (buy_price * .02)
         if current_price >= up_price:
             return 'sell', 0.3
     elif current_price > buy_price and current_price > high_price:
-        up_price = buy_price + (buy_price * .04)
+        up_price = buy_price + (buy_price * .03)
         if current_price >= up_price:
             return 'sell', 0.5   
-    elif current_price > buy_price and current_price < high_price:
-        lo_price = buy_price + (buy_price * .01)
-        if current_price >= lo_price:
-            return 'sell', 1.0     
+
     return None, 0  # 매도하지 않는 경우 None과 0 반환
 
 def buy_decision(current_price, buy_price, start_price, high_price):
@@ -280,13 +278,55 @@ def get_trade_info(sym):
             start_price = row['start_price']
         return qty, buy_price, sell_price, start_price, high_price
     return None, None, None,None,None
+def codes():
+    COST = 100  # 최소 단가
+    VOLUME = 2000000  # 최소 거래량
+    results = []
+    codes = []
+
+    for chk in [0, 1]:  # 0은 코스피, 1은 코스닥
+        url = f'https://finance.naver.com/sise/sise_rise.naver?sosok={chk}'
+        response = requests.get(url)
+        if response.status_code == 200:
+            html = response.text
+            soup = BeautifulSoup(html, 'html.parser')
+            trs = soup.select('table.type_2 tr')
+            del trs[0:2]  # 제목 행 제거
+            
+            for tr in trs:
+                record = []
+                tds = tr.find_all('td')
+                for td in tds:
+                    if td.select('a[href]'):
+                        code = td.find('a').get('href').split('=')[-1].strip().replace(',', '')
+                        name = td.get_text().strip().replace(',', '')
+                        record.append(code)  # 주식 코드
+                        record.append(name)  # 업체명
+                    else:
+                        data = td.get_text().strip().replace(',', '')
+                        if data.isdigit():
+                            record.append(int(data))
+                        else:
+                            record.append(data)
+                if len(record) >= 7 and record[3] >= COST and record[6] >= VOLUME:
+                    # 저장은 하고 있지만 코드만 사용 나중에 사용에 대한 고려
+                    results.append({'code':record[1],'name':record[2],'price':record[3],'volume':record[6],'stock': chk})  # 업체명과 시장 구분(0 또는 1) 추가
+                    # print(f"{row['code']} {row['name']} {row['price']} {row['volume']} {row['stock']}")
+                    codes.append(record[1])
+                    
+
+        else:
+            print("Failed to retrieve data:", response.status_code)
+
+    return codes
 
 # 자동매매 시작
 try:
     ACCESS_TOKEN = get_access_token_if_needed()
     total_cash = get_balance() # 보유 현금 조회
-
-    symbol_list = model.buy_companies()
+    stock_dict = get_stock_balance()
+    symbol_list = model.buy_companies() #인공지능
+    # symbol_list = codes()             #다음에서 둘중 선택
     target_buy_count = len(symbol_list) 
     buy_percent = 1.0 / target_buy_count
     buy_amount = total_cash * buy_percent
@@ -308,7 +348,7 @@ try:
                 sell(sym, qty)
         if t_start < t_now < t_sell :  # AM 09:05 ~ PM 03:15 : 매수
             for sym in symbol_list:
-                stock_dict = get_stock_balance() # 보유 주식 조회
+                
                 if len(stock_dict) == target_buy_count:
                     break
                 if sym in stock_dict.keys():
@@ -316,14 +356,15 @@ try:
                 else:
                     target_price,start_price = get_target_price(sym)
                     current_price = get_current_price(sym)
-                    lo_price = start_price + (start_price * .01)
-                    if current_price > lo_price:
+                    lo_price = start_price + (start_price * .001)
+                    if current_price >= lo_price and current_price < (current_price +(current_price * 0.01)):
                         buy_qty = 0  # 매수할 수량 초기화
                         buy_qty = int(buy_amount * 0.1 // current_price)
                         if buy_qty > 0:
                             send_message(f"{sym} 목표가 달성({target_price} < {current_price}) 매수를 시도합니다.")
                             result = buy(sym, buy_qty)
                             if result:
+                                stock_dict = get_stock_balance() # 보유 주식 조회
                                 qty, _,_,_,_ = get_trade_info(sym)
                                 if qty is not None:
                                     database.deleteData('trades', "code", sym)
@@ -342,7 +383,7 @@ try:
             time.sleep(1)
 
             #매도/분할매도
-            stock_dict = get_stock_balance()
+            
             for sym, qty in stock_dict.items():
                 current_price = get_current_price(sym)
                 _, buy_price,sell_price, start_price,high_price = get_trade_info(sym)
@@ -358,6 +399,7 @@ try:
                     action, sell_percent = sell_decision(current_price, buy_price, start_price, high_price)
                     if action == 'sell' and sell_percent > 0:
                         if sell_percent == 1.0:  # 전량매도
+                            stock_dict = get_stock_balance()
                             result = sell(sym, int(qty))
                             if result:
                                 sell_amount = r * int(qty)
@@ -371,6 +413,7 @@ try:
                                 print('분할매도 수량:',sell_qty,buy_price,current_price,buy_price-current_price)
                                 result = sell(sym, sell_qty)
                                 if result:
+                                    stock_dict = get_stock_balance()
                                     sell_amount = r * sell_qty
                                     print(f'*** 분할매도 *** {rstring} 이며, {sell_amount} 원 입니다. 매도수량은{sell_qty} 입니다.')
                                     stock_dict = get_stock_balance() # 보유 주식 조회
@@ -382,6 +425,7 @@ try:
                                     database.updateData('trades', {'qty':int(qty)-sell_qty,'sell_price': current_price,'high_price': high_price}, "code", sym)
                                 
                     else:
+                        stock_dict = get_stock_balance()
                         if current_price > high_price:
                             high_price = current_price
                         database.updateData('trades', {'start_price':start_price,'sell_price': current_price,'high_price': high_price}, "code", sym)
@@ -389,14 +433,13 @@ try:
                 time.sleep(1)
 
             # 분할매수
-            stock_dict = get_stock_balance()
+            
             for sym, qty in stock_dict.items():
                 current_price = get_current_price(sym)
                 _, buy_price,sell_price, start_price,high_price = get_trade_info(sym)
                 _, start_price = get_target_price(sym)
                 if int(qty):
                     action, buy_percent = buy_decision(current_price, buy_price, start_price, high_price)
-                    print(action,buy_percent)
                     # total_cash = get_balance()
                     if action == 'buy' and buy_percent > 0:
                         have_amount = (int(qty) * buy_price)
@@ -407,6 +450,7 @@ try:
                         if buy_qty > 0:
                             result = buy(sym, buy_qty)
                             if result:
+                                stock_dict = get_stock_balance()
                                 update_qty = buy_qty + int(qty)
                                 update_buy_price = int(((current_price * buy_qty) + (buy_price * int(qty))) / update_qty)
                                 if current_price > high_price:
@@ -415,8 +459,8 @@ try:
                     time.sleep(1)
             time.sleep(1)
 
-            if t_now.minute == 30 and t_now.second <= 5: 
-                get_stock_balance()
+            if t_now.minute == 1 and t_now.second <= 5: 
+                stock_dict = get_stock_balance()
                 time.sleep(5)
 
         if t_sell < t_now < t_exit:  # PM 03:15 ~ PM 03:20 : 일괄 매도
