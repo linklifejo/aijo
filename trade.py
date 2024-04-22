@@ -278,58 +278,25 @@ def get_trade_info(sym):
             start_price = row['start_price']
         return qty, buy_price, sell_price, start_price, high_price
     return None, None, None,None,None
-def codes():
-    COST = 100  # 최소 단가
-    VOLUME = 2000000  # 최소 거래량
-    results = []
-    codes = []
 
-    for chk in [0, 1]:  # 0은 코스피, 1은 코스닥
-        url = f'https://finance.naver.com/sise/sise_rise.naver?sosok={chk}'
-        response = requests.get(url)
-        if response.status_code == 200:
-            html = response.text
-            soup = BeautifulSoup(html, 'html.parser')
-            trs = soup.select('table.type_2 tr')
-            del trs[0:2]  # 제목 행 제거
-            
-            for tr in trs:
-                record = []
-                tds = tr.find_all('td')
-                for td in tds:
-                    if td.select('a[href]'):
-                        code = td.find('a').get('href').split('=')[-1].strip().replace(',', '')
-                        name = td.get_text().strip().replace(',', '')
-                        record.append(code)  # 주식 코드
-                        record.append(name)  # 업체명
-                    else:
-                        data = td.get_text().strip().replace(',', '')
-                        if data.isdigit():
-                            record.append(int(data))
-                        else:
-                            record.append(data)
-                if len(record) >= 7 and record[3] >= COST and record[6] >= VOLUME:
-                    # 저장은 하고 있지만 코드만 사용 나중에 사용에 대한 고려
-                    results.append({'code':record[1],'name':record[2],'price':record[3],'volume':record[6],'stock': chk})  # 업체명과 시장 구분(0 또는 1) 추가
-                    # print(f"{row['code']} {row['name']} {row['price']} {row['volume']} {row['stock']}")
-                    codes.append(record[1])
-                    
-
-        else:
-            print("Failed to retrieve data:", response.status_code)
-
-    return codes
 
 # 자동매매 시작
 try:
+    isAi = False
     ACCESS_TOKEN = get_access_token_if_needed()
     total_cash = get_balance() # 보유 현금 조회
     stock_dict = get_stock_balance()
-    symbol_list = model.buy_companies() #인공지능
-    # symbol_list = codes()             #다음에서 둘중 선택
-    target_buy_count = len(symbol_list) 
-    buy_percent = 1.0 / target_buy_count
-    buy_amount = total_cash * buy_percent
+    if isAi:
+        symbol_list = model.buy_companies() #인공지능
+        target_buy_count = len(symbol_list) 
+        buy_percent = 1.0 / target_buy_count
+        buy_amount = total_cash * buy_percent
+    else:
+        symbol_list = database.codes()             #다음에서 둘중 선택
+        target_buy_count = 1
+        buy_percent = 1.0 / target_buy_count
+        buy_amount = total_cash * buy_percent
+
 
     send_message("===국내 주식 자동매매 프로그램을 시작합니다===")
     while True:
@@ -348,7 +315,7 @@ try:
                 sell(sym, qty)
         if t_start < t_now < t_sell :  # AM 09:05 ~ PM 03:15 : 매수
             for sym in symbol_list:
-                
+                print('추천주식수:',len(symbol_list))
                 if len(stock_dict) == target_buy_count:
                     break
                 if sym in stock_dict.keys():
@@ -356,8 +323,10 @@ try:
                 else:
                     target_price,start_price = get_target_price(sym)
                     current_price = get_current_price(sym)
-                    lo_price = start_price + (start_price * .001)
-                    if current_price >= lo_price and current_price < (current_price +(current_price * 0.01)):
+                    lo_price = start_price + (start_price * 0.01)  # 최소 1% 증가
+                    hi_price = start_price + (start_price * 0.02)  # 최대 2% 증가
+                    print("시작 가격:", start_price, "현재 가격:", current_price)
+                    if lo_price <= current_price <= hi_price:
                         buy_qty = 0  # 매수할 수량 초기화
                         buy_qty = int(buy_amount * 0.1 // current_price)
                         if buy_qty > 0:
@@ -410,7 +379,6 @@ try:
                                 sell_qty = int(int(qty) * sell_percent)  # 분할 매도할 수량 계산
                                 if sell_qty == 0:
                                     sell_qty =1
-                                print('분할매도 수량:',sell_qty,buy_price,current_price,buy_price-current_price)
                                 result = sell(sym, sell_qty)
                                 if result:
                                     stock_dict = get_stock_balance()

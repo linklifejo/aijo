@@ -4,6 +4,8 @@ import pandas as pd
 import os
 import streamlit as st
 import logging
+import requests
+from bs4 import BeautifulSoup
 # Logging configuration
 logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -319,7 +321,47 @@ def queryIdRange(table, start_id, end_id):
 def queryJoin(table1, table2, join_condition, select_fields, where_clause=None, where_params=None):
     return run_async(_queryJoin(table1, table2, join_condition, select_fields, where_clause, where_params))
 
+def codes():
+    COST = 100  # 최소 단가
+    VOLUME = 800000  # 최소 거래량
+    results = []
+    codes = []
 
+    for chk in [0, 1]:  # 0은 코스피, 1은 코스닥
+        url = f'https://finance.naver.com/sise/sise_rise.naver?sosok={chk}'
+        response = requests.get(url)
+        if response.status_code == 200:
+            html = response.text
+            soup = BeautifulSoup(html, 'html.parser')
+            trs = soup.select('table.type_2 tr')
+            del trs[0:2]  # 제목 행 제거
+            
+            for tr in trs:
+                record = []
+                tds = tr.find_all('td')
+                for td in tds:
+                    if td.select('a[href]'):
+                        code = td.find('a').get('href').split('=')[-1].strip().replace(',', '')
+                        name = td.get_text().strip().replace(',', '')
+                        record.append(code)  # 주식 코드
+                        record.append(name)  # 업체명
+                    else:
+                        data = td.get_text().strip().replace(',', '')
+                        if data.isdigit():
+                            record.append(int(data))
+                        else:
+                            record.append(data)
+                if len(record) >= 7 and record[3] >= COST and record[6] >= VOLUME:
+                    # 저장은 하고 있지만 코드만 사용 나중에 사용에 대한 고려
+                    results.append({'code':record[1],'name':record[2],'price':record[3],'volume':record[6],'stock': chk})  # 업체명과 시장 구분(0 또는 1) 추가
+                    # print(f"{row['code']} {row['name']} {row['price']} {row['volume']} {row['stock']}")
+                    codes.append(record[1])
+                    
+
+        else:
+            print("Failed to retrieve data:", response.status_code)
+
+    return codes
 # 비동기 함수 실행
 
 def main():
