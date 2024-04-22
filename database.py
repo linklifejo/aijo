@@ -352,15 +352,19 @@ def codes():
                         else:
                             record.append(data)
                 if len(record) >= 7 and record[3] >= COST and record[6] >= VOLUME:
+                    grade = record[5].replace('+','').replace('%','')
                     # 저장은 하고 있지만 코드만 사용 나중에 사용에 대한 고려
-                    results.append({'code':record[1],'name':record[2],'price':record[3],'volume':record[6],'stock': chk})  # 업체명과 시장 구분(0 또는 1) 추가
-                    # print(f"{row['code']} {row['name']} {row['price']} {row['volume']} {row['stock']}")
-                    codes.append(record[1])
+                    results.append({'code':record[1],'name':record[2],'price':record[3],'grade':float(grade),'volume':record[6],'stock': chk})  # 업체명과 시장 구분(0 또는 1) 추가
+                    # print(f"{row['code']} {row['name']} {row['price']} {row['grade']} {row['volume']} {row['stock']}")
+                    # codes.append(record[1])
+
                     
 
         else:
             print("Failed to retrieve data:", response.status_code)
-
+    results.sort(key=lambda x: x['grade'], reverse=True)
+    # 상위 5개 요소의 'code' 값만을 포함하는 새로운 리스트 생성
+    codes = [result['code'] for result in results[:3]]
     return codes
 # 비동기 함수 실행
 
