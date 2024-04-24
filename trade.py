@@ -85,7 +85,7 @@ def get_target_price(code="005930"):
     stck_oprc = int(res.json()['output'][0]['stck_oprc']) #오늘 시가
     stck_hgpr = int(res.json()['output'][1]['stck_hgpr']) #전일 고가
     stck_lwpr = int(res.json()['output'][1]['stck_lwpr']) #전일 저가
-    target_price = stck_oprc + (stck_hgpr - stck_lwpr) * 0.1
+    target_price = stck_oprc + (stck_hgpr - stck_lwpr) * 0.5
     return target_price, stck_oprc
 
 def get_stock_balance():
@@ -213,38 +213,50 @@ def sell(code="005930", qty="1"):
         return False
 
 def sell_decision(current_price, buy_price, start_price, high_price):
-
-    if current_price > buy_price and current_price == high_price:
-        up_price = buy_price + (buy_price * .01)
-        if current_price >= up_price:
-            return 'sell', 0.1    
-    elif current_price > buy_price and current_price == high_price:
-        up_price = buy_price + (buy_price * .02)
-        if current_price >= up_price:
-            return 'sell', 0.3
-    elif current_price > buy_price and current_price > high_price:
-        up_price = buy_price + (buy_price * .03)
-        if current_price >= up_price:
-            return 'sell', 0.5   
-    elif current_price > buy_price and current_price > high_price:
-        up_price = buy_price + (buy_price * .05)
-        if current_price >= up_price:
-            return 'sell', 1.0 
-    elif current_price < buy_price and current_price > high_price:
+    # 매수하고 손실인경우, 매수하고 수익인경우 둘다 매도
+    if current_price < buy_price: #손실
+        up_price = buy_price - (buy_price * .015) 
+        if current_price <= up_price:
+            return 'sell', 0.3            
+    elif current_price < buy_price: # 손실
         up_price = buy_price - (buy_price * .02)
         if current_price <= up_price:
-            return 'sell', 0.5            
+            return 'sell', 0.5                         
+    elif current_price < buy_price: # 손실
+        up_price = buy_price - (buy_price * .03)
+        if current_price <= up_price:
+            return 'sell', 1.0       
+    elif current_price > buy_price: # 수익
+        up_price = buy_price + (buy_price * .007)
+        if current_price >= up_price:
+            return 'sell', 0.1    
+    elif current_price > buy_price: # 수익
+        up_price = buy_price + (buy_price * .01)
+        if current_price >= up_price:
+            return 'sell', 0.1
+    elif current_price > buy_price: # 수익
+        up_price = buy_price + (buy_price * .015)
+        if current_price >= up_price:
+            return 'sell', 0.1        
+    elif current_price > buy_price: # 수익
+        up_price = buy_price + (buy_price * .02)
+        if current_price >= up_price:
+            return 'sell', 0.3   
+    elif current_price > buy_price and current_price < high_price:
+        up_price = high_price - (high_price * .01)
+        if current_price >= up_price:
+            return 'sell', 1.0 
+
     return None, 0  # 매도하지 않는 경우 None과 0 반환
 
 def buy_decision(current_price, buy_price, start_price, high_price):
-    if current_price > start_price and current_price > buy_price and current_price > high_price:
-        lo_price = buy_price + (buy_price * .01)
-        if current_price >= lo_price:
-            return 'buy', 0.01    
-    elif current_price < buy_price:
-        lo_price = buy_price - (buy_price * .01)
-        if current_price < lo_price:
-            return 'buy', 0.01    
+    if buy_price > start_price:
+        if current_price > buy_price:
+            if current_price > high_price:
+                lo_price = high_price + (high_price * .01)
+                if current_price >= lo_price:
+                    return 'buy', 0.1    
+
     return None, 0  # 매도하지 않는 경우 None과 0 반환
 
 def get_access_token_if_needed():
@@ -283,6 +295,7 @@ try:
     isAi = False
     ACCESS_TOKEN = get_access_token_if_needed()
     total_cash = get_balance() # 보유 현금 조회
+    print('현금보유:',total_cash)
     stock_dict = get_stock_balance()
     if isAi:
         symbol_list = model.buy_companies() #인공지능
@@ -291,7 +304,7 @@ try:
         buy_amount = total_cash * buy_percent
     else:
         symbol_list = database.codes()             #다음에서 둘중 선택 codes()함수에서 종목수를 결정한다
-        target_buy_count = len(symbol_list)
+        target_buy_count = 5
         buy_percent = 1.0 / target_buy_count
         buy_amount = total_cash * buy_percent
 
@@ -307,10 +320,10 @@ try:
         if today == 5 or today == 6:  # 토요일이나 일요일이면 자동 종료
             send_message("주말이므로 프로그램을 종료합니다.")
             break
-        if t_9 < t_now < t_start: # 잔여 수량 매도
-            stock_dict = get_stock_balance() # 보유 주식 조회
-            for sym, qty in stock_dict.items():
-                sell(sym, qty)
+        # if t_9 < t_now < t_start: # 잔여 수량 매도
+        #     stock_dict = get_stock_balance() # 보유 주식 조회
+        #     for sym, qty in stock_dict.items():
+        #         sell(sym, qty)
         if t_start < t_now < t_sell :  # AM 09:05 ~ PM 03:15 : 매수
             for sym in symbol_list:
                 print('추천주식수:',len(symbol_list))
@@ -321,12 +334,10 @@ try:
                 else:
                     target_price,start_price = get_target_price(sym)
                     current_price = get_current_price(sym)
-                    lo_price = start_price + (start_price * 0.01)  # 최소 1% 증가
-                    hi_price = start_price + (start_price * 0.08)  # 최대 2% 증가
-                    print("시작 가격:", start_price, "현재 가격:", current_price)
-                    if lo_price <= current_price <= hi_price:
+                    print("업체코드:",sym,"시작 가격:", start_price, "현재 가격:", current_price)
+                    if target_price < current_price:
                         buy_qty = 0  # 매수할 수량 초기화
-                        buy_qty = int(buy_amount * 0.01 // current_price)
+                        buy_qty = int(buy_amount * 0.3 // current_price)
                         if buy_qty > 0:
                             send_message(f"{sym} 목표가 달성({target_price} < {current_price}) 매수를 시도합니다.")
                             result = buy(sym, buy_qty)
