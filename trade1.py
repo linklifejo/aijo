@@ -119,8 +119,8 @@ def get_stock_balance():
     send_message(f"====주식 보유잔고====")
     for stock in stock_list:
         if int(stock['hldg_qty']) > 0:
-            stock_dict[stock['pdno']] = stock['hldg_qty']
-            send_message(f"{stock['prdt_name']}({stock['pdno']}): {stock['hldg_qty']}주")
+            stock_dict[stock['pdno']] = {int(stock['hldg_qty']), int(stock['pchs_avg_pric'])}
+            send_message(f"{stock['prdt_name']}({stock['pdno']})에 대한 보유주식수는 {stock['hldg_qty']}주 이며, 매수단가는 {stock['pchs_avg_pric']}원 입니다.")
             time.sleep(0.1)
     send_message(f"주식 평가 금액: {evaluation[0]['scts_evlu_amt']}원")
     time.sleep(0.1)
@@ -152,14 +152,12 @@ def get_balance():
         "OVRS_ICLD_YN": "Y"
     }
     res = requests.get(URL, headers=headers, params=params)
-    cash = res.json()['output']['ord_psbl_cash']
-    send_message(f"주문 가능 현금 잔고: {cash}원")
-    amt_cash = res.json()['output']['ruse_psbl_amt']
-    send_message(f"재사용가능금액 잔고: {amt_cash}원")
+    # cash = int(res.json()['output']['max_buy_amt']) / 2
+    # send_message(f"매수가능금액: {cash}원") # 미수거래가능잔고
+    cash = res.json()['output']['ord_psbl_cash'] # 주문가능현금잔고
+    amt_cash = res.json()['output']['ruse_psbl_amt'] # 재사용가능잔고
     cash = int(cash) + int(amt_cash)
-    send_message(f"사용가능 잔고: {cash}원")
-    cash = res.json()['output']['max_buy_amt']
-    send_message(f"미수가능금액 잔고: {cash}원")
+    send_message(f"매수가능금액: {cash}원") # 거래가능잔고
 
     return int(cash)
 
@@ -219,7 +217,7 @@ def sell(code="005930", qty="1"):
         send_message(f"[매도 실패]{str(res.json())}")
         return False
 
-def sell_decision(current_price, buy_price, start_price, high_price):
+def decision(current_price, buy_price, start_price, high_price):
     # 매수하고 손실인경우, 매수하고 수익인경우 둘다 매도
     if current_price < buy_price: #손실
         up_price = buy_price - (buy_price * .015) 
@@ -253,18 +251,16 @@ def sell_decision(current_price, buy_price, start_price, high_price):
         up_price = high_price - (high_price * .01)
         if current_price >= up_price:
             return 'sell', 1.0 
-
-    return None, 0  # 매도하지 않는 경우 None과 0 반환
-
-def buy_decision(current_price, buy_price, start_price, high_price):
-    if buy_price > start_price:
+    elif buy_price > start_price:
         if current_price > buy_price:
             if current_price > high_price:
                 lo_price = high_price + (high_price * .01)
                 if current_price >= lo_price:
-                    return 'buy', 0.1    
+                    return 'buy', 0.1  
+    else:
+        return None, 0  # 매도하지 않는 경우 None과 0 반환
 
-    return None, 0  # 매도하지 않는 경우 None과 0 반환
+
 
 def get_access_token_if_needed():
     """토큰을 가져오거나 업데이트합니다."""
@@ -296,13 +292,116 @@ def get_trade_info(sym):
         return qty, buy_price, sell_price, start_price, high_price
     return None, None, None,None,None
 
+def createStock():
+    for sym in symbol_list:
+        print('추천주식수:',len(symbol_list))
+        if len(stock_dict) == target_buy_count:
+            break
+        if sym in stock_dict.keys():
+            continue
+        else:
+            print('매수체결 시도 ... !!!')
+            target_price,start_price = get_target_price(sym)
+            current_price = get_current_price(sym)
+            if target_price < current_price:
+                buy_qty = 0  # 매수할 수량 초기화
+                buy_qty = int(buy_amount * 0.1 // current_price)
+                if buy_qty > 0:
+                    send_message(f"{sym} 목표가 달성({target_price} < {current_price}) 매수를 시도합니다.")
+                    result = buy(sym, buy_qty)
+                    if result:
+                        stock_dict = get_stock_balance() # 보유 주식 
+                        syms = stock_dict.keys()
+                        for sym in syms:
+                            buy_qty = stock_dict[sym]['qty']
+                            buy_price = stock_dict[sym]['price']
+
+                        qty, _,_,_,_ = get_trade_info(sym)
+                        if qty is not None:
+                            database.deleteData('trades', "code", sym)
+                        database.insertData('trades', {
+                        'code': sym,
+                        'trade_date': str(datetime.datetime.now().date()),
+                        'buy_price': buy_price,
+                        'sell_price': 0,
+                        'start_price': start_price,
+                        'high_price': current_price,
+                        'qty': buy_qty
+                        })   
+                    else:
+                        continue                             
+            time.sleep(1)
+def modifyStock():
+    #분할매수 / 분할매도
+    syms = stock_dict.keys()
+    for sym in syms:
+        have_qty = stock_dict[sym]['qty']
+        buy_price = stock_dict[sym]['price']
+        current_price = get_current_price(sym)
+        _, _,_, start_price,high_price = get_trade_info(sym)
+        if have_qty > 0:
+            # util.clear()
+            r =current_price - buy_price
+            if r > 0:
+                rstring = '수익'
+            else:
+                rstring = '손실'
+
+            action, percent = decision(current_price, buy_price, start_price, high_price)
+            if action == 'sell' and percent > 0:
+            
+                if percent == 1.0:  # 전량매도
+                    stock_dict = get_stock_balance()
+                    result = sell(sym, have_qty)
+                    if result:
+                        sell_amount = r * have_qty
+                        print(f'*** 전량매도 *** {rstring} 이며, {sell_amount} 원 입니다. 매도수량은 {have_qty} 입니다.')
+                        database.deleteData('trades', "code", sym)
+                else:  # 분할매도
+                    if int(qty) > 1:
+                        sell_qty = int(have_qty * percent)  # 분할 매도할 수량 계산
+                        if sell_qty == 0:
+                            sell_qty =1
+                        result = sell(sym, sell_qty)
+                        if result:
+                            stock_dict = get_stock_balance()
+                            sell_amount = r * sell_qty
+                            print(f'*** 분할매도 *** {rstring} 이며, {sell_amount} 원 입니다. 매도수량은{sell_qty} 입니다.')
+                            stock_dict = get_stock_balance() # 보유 주식 조회
+                            if sym not in stock_dict.keys():
+                                database.deleteData('trades', "code", sym)
+                                continue
+                            if current_price > high_price:
+                                high_price = current_price
+                            database.updateData('trades', {'qty':have_qty - sell_qty,'sell_price': current_price,'high_price': high_price}, "code", sym)
+                        
+            elif action == 'buy' and percent > 0:
+                buy_qty = int(buy_amount * percent //current_price)  # 분할 매수수량 계산
+                if buy_qty > 0:
+                    result = buy(sym, buy_qty)
+                    if result:
+                        stock_dict = get_stock_balance()
+                        syms = stock_dict.keys()
+                        for sym in syms:
+                            have_qty = stock_dict[sym]['qty']
+                            buy_price = stock_dict[sym]['price']
+
+                        if current_price > high_price:
+                            high_price = current_price
+                        database.updateData('trades', {'qty':have_qty,'buy_price':buy_price,'sell_price':current_price,'high_price':high_price}, "code", sym)
+            else:
+                stock_dict = get_stock_balance()
+                if current_price > high_price:
+                    high_price = current_price
+                database.updateData('trades', {'start_price':start_price,'sell_price': current_price,'high_price': high_price}, "code", sym)
+
+            time.sleep(1)
 
 # 자동매매 시작
 try:
     isAi = False
     ACCESS_TOKEN = get_access_token_if_needed()
     total_cash = get_balance() # 보유 현금 조회
-    print('현금보유:',total_cash)
     stock_dict = get_stock_balance()
     if isAi:
         symbol_list = model.buy_companies() #인공지능
@@ -332,118 +431,10 @@ try:
         #     for sym, qty in stock_dict.items():
         #         sell(sym, qty)
         if t_start < t_now < t_sell :  # AM 09:05 ~ PM 03:15 : 매수
-            for sym in symbol_list:
-                print('추천주식수:',len(symbol_list))
-                if len(stock_dict) == target_buy_count:
-                    break
-                if sym in stock_dict.keys():
-                    continue
-                else:
-                    target_price,start_price = get_target_price(sym)
-                    current_price = get_current_price(sym)
-                    print("업체코드:",sym,"시작 가격:", start_price, "현재 가격:", current_price)
-                    lo_price = start_price + start_price * 0.01
-                    hi_price = start_price + start_price * 0.02
-                    # if target_price < current_price:
-                    if lo_price <= current_price <= hi_price:
-                        buy_qty = 0  # 매수할 수량 초기화
-                        buy_qty = int(buy_amount * 0.1 // current_price)
-                        if buy_qty > 0:
-                            send_message(f"{sym} 목표가 달성({target_price} < {current_price}) 매수를 시도합니다.")
-                            result = buy(sym, buy_qty)
-                            if result:
-                                stock_dict = get_stock_balance() # 보유 주식 조회
-                                qty, _,_,_,_ = get_trade_info(sym)
-                                if qty is not None:
-                                    database.deleteData('trades', "code", sym)
-                                database.insertData('trades', {
-                                'code': sym,
-                                'trade_date': str(datetime.datetime.now().date()),
-                                'buy_price': current_price,
-                                'sell_price': 0,
-                                'start_price': start_price,
-                                'high_price': current_price,
-                                'qty': buy_qty
-                                })   
-                            else:
-                                continue                             
-                    time.sleep(1)
-            time.sleep(1)
-
-            #매도/분할매도
-            
-            for sym, qty in stock_dict.items():
-                current_price = get_current_price(sym)
-                _, buy_price,sell_price, start_price,high_price = get_trade_info(sym)
-                _, start_price = get_target_price(sym)
-                if int(qty) > 0:
-                    # util.clear()
-                    r =current_price - buy_price
-                    if r > 0:
-                        rstring = '수익'
-                    else:
-                        rstring = '손실'
-
-                    action, sell_percent = sell_decision(current_price, buy_price, start_price, high_price)
-                    if action == 'sell' and sell_percent > 0:
-                        if sell_percent == 1.0:  # 전량매도
-                            stock_dict = get_stock_balance()
-                            result = sell(sym, int(qty))
-                            if result:
-                                sell_amount = r * int(qty)
-                                print(f'*** 전량매도 *** {rstring} 이며, {sell_amount} 원 입니다. 매도수량은 {qty} 입니다.')
-                                database.deleteData('trades', "code", sym)
-                        else:  # 분할매도
-                            if int(qty) > 1:
-                                sell_qty = int(int(qty) * sell_percent)  # 분할 매도할 수량 계산
-                                if sell_qty == 0:
-                                    sell_qty =1
-                                result = sell(sym, sell_qty)
-                                if result:
-                                    stock_dict = get_stock_balance()
-                                    sell_amount = r * sell_qty
-                                    print(f'*** 분할매도 *** {rstring} 이며, {sell_amount} 원 입니다. 매도수량은{sell_qty} 입니다.')
-                                    stock_dict = get_stock_balance() # 보유 주식 조회
-                                    if sym not in stock_dict.keys():
-                                        database.deleteData('trades', "code", sym)
-                                        continue
-                                    if current_price > high_price:
-                                        high_price = current_price
-                                    database.updateData('trades', {'qty':int(qty)-sell_qty,'sell_price': current_price,'high_price': high_price}, "code", sym)
-                                
-                    else:
-                        stock_dict = get_stock_balance()
-                        if current_price > high_price:
-                            high_price = current_price
-                        database.updateData('trades', {'start_price':start_price,'sell_price': current_price,'high_price': high_price}, "code", sym)
-
-                time.sleep(1)
-
-            # 분할매수
-            
-            for sym, qty in stock_dict.items():
-                current_price = get_current_price(sym)
-                _, buy_price,sell_price, start_price,high_price = get_trade_info(sym)
-                _, start_price = get_target_price(sym)
-                if int(qty):
-                    action, buy_percent = buy_decision(current_price, buy_price, start_price, high_price)
-                    # total_cash = get_balance()
-                    if action == 'buy' and buy_percent > 0:
-                        have_amount = (int(qty) * buy_price)
-                        available_amount = buy_amount - have_amount
-                        buy_qty = int(available_amount * buy_percent //current_price)  # 분할 매도할 수량 계산
-                        print(f'시가는 {start_price} 이고, 이전 매수가는{buy_price} 입니다. 현재 매수가는 {current_price} 입니다.')
-                        print(f'이미 매수한 금액은 {have_amount} 이며, 매수가능금액은 {buy_amount-have_amount} 입니다. 현재 매수가능한 수량은 {(buy_amount-have_amount)//current_price} 인데, 매수하려는 수량은 {buy_qty} 입니다.')
-                        if buy_qty > 0:
-                            result = buy(sym, buy_qty)
-                            if result:
-                                stock_dict = get_stock_balance()
-                                update_qty = buy_qty + int(qty)
-                                update_buy_price = int(((current_price * buy_qty) + (buy_price * int(qty))) / update_qty)
-                                if current_price > high_price:
-                                    high_price = current_price
-                                database.updateData('trades', {'qty':update_qty,'buy_price':update_buy_price,'sell_price':current_price,'high_price':high_price}, "code", sym)
-                    time.sleep(1)
+            if len(stock_dict) < target_buy_count:
+                createStock()
+            else:
+                modifyStock()                
             time.sleep(1)
 
             if t_now.minute == 1 and t_now.second <= 5: 
