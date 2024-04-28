@@ -151,7 +151,7 @@ async def _setupTables():
                     );
                 CREATE TABLE IF NOT EXISTS trades (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    code TEXT NOT NULL UNIQUE,
+                    code TEXT NOT NULL,
                     trade_date TEXT,
                     buy_price INTEGER,
                     sell_price INTEGER,

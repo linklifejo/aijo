@@ -6,9 +6,9 @@ import database
 
 def main():
     query = """
-        SELECT id, code, name
+        SELECT code, name
         FROM krxs
-        WHERE DATE(SUBSTR(ipo, 1, 10)) <= DATE('now', '-100 days') AND sector != '금융 지원 서비스업'
+        WHERE DATE(SUBSTR(ipo, 1, 10)) <= DATE('now', '-100 days')
         """
     # queryToDataframe 함수를 사용하여 데이터를 가져옵니다.
     query_data = database.queryToDataframe(query)
@@ -21,7 +21,6 @@ def main():
             decision, predicted_price, close_price = model.buy_and_sell(code)
             percent = model.calculate_percentage(predicted_price, close_price)
             if decision is not None:
-                print(decision)
                 database.insertData('predicts', {
                 'code': code,
                 'name': name,

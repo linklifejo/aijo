@@ -80,14 +80,15 @@ def files():
 def get_company_codes():
     companies = []
     query = """
-    SELECT id, code, name
+    SELECT code, name
     FROM krxs
-    WHERE DATE(SUBSTR(ipo, 1, 10)) <= DATE('now', '-100 days') AND sector != '금융 지원 서비스업'
+    WHERE DATE(SUBSTR(ipo, 1, 10)) <= DATE('now', '-100 days')
     """
+
     df = database.queryToDataframe(query)
+    print(len(df))
     for _, row in df.iterrows():
         companies.append({
-            'id': row['id'],
             'code': row['code'],
             'name': row['name']
         })
@@ -292,7 +293,6 @@ def train_and_company():
 def start_training_thread():
     training_thread = threading.Thread(target=train_and_company)
     training_thread.start()
-    
 def buy_and_sell(code):
     model = custom_load_model(code)
     if model is not None:
