@@ -323,7 +323,7 @@ def queryJoin(table1, table2, join_condition, select_fields, where_clause=None, 
 
 def codes():
     COST = 100  # 최소 단가
-    VOLUME = 800000  # 최소 거래량
+    VOLUME = 300000  # 최소 거래량
     results = []
     codes = []
 
@@ -366,8 +366,8 @@ def codes():
         else:
             print("Failed to retrieve data:", response.status_code)
     results.sort(key=lambda x: x['grade'], reverse=True)
-    # 상위 5개 요소의 'code' 값만을 포함하는 새로운 리스트 생성
-    codes = [result['code'] for result in results[:10]]
+    # 상위 10개 요소의 'code' 값만을 포함하는 새로운 리스트 생성
+    codes = [result['code'] for result in results[:5]]
     return codes
 # 비동기 함수 실행
 
