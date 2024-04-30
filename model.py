@@ -320,7 +320,7 @@ def buy_companies(chk='buy'):
     query_data_sorted = query_data.sort_values(by='percent', ascending=False)
     
     # 'code' 열에서 상위 3개 데이터만 추출합니다. 시장 상황에 따른...조정
-    top_data = query_data_sorted['code'].head(10).tolist()
+    top_data = query_data_sorted['code'].head(3).tolist()
     
     return top_data
 

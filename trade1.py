@@ -67,11 +67,10 @@ def get_price(code="005930"):
     "fid_input_iscd":code,
     }
     res = requests.get(URL, headers=headers, params=params)
-    start_price = int(res.json()['output']['stck_oprc'])
     current_price = int(res.json()['output']['stck_prpr'])
     high_price = int(res.json()['output']['stck_hgpr'])
     low_price = int(res.json()['output']['stck_lwpr'])
-    return start_price, current_price, high_price, low_price
+    return current_price, high_price, low_price
 
 def get_target_price(code="005930"):
     """변동성 돌파 전략으로 매수 목표가 조회"""
@@ -93,7 +92,7 @@ def get_target_price(code="005930"):
     stck_hgpr = int(res.json()['output'][1]['stck_hgpr']) #전일 고가
     stck_lwpr = int(res.json()['output'][1]['stck_lwpr']) #전일 저가
     target_price = stck_oprc + (stck_hgpr - stck_lwpr) * 0.5
-    return target_price
+    return target_price,stck_oprc
 
 def get_stock_balance():
     """주식 잔고조회"""
@@ -265,7 +264,7 @@ async def decide_transaction(sym, start_price, current_price, buy_price, high_pr
             return 'sell', 0.5
         elif percent <= -2:
             return 'sell', 0.2
-        elif percent <= -1.5:
+        elif percent <= -1.7:
             return 'sell', 0.1
         
         # 수익률에 따른 매도 조건
@@ -273,6 +272,8 @@ async def decide_transaction(sym, start_price, current_price, buy_price, high_pr
             return 'sell', 0.3 
         elif percent >= 2:
             return 'sell', 0.15
+        elif percent >= 1.5:
+            return 'sell', 0.1
         elif percent >= 1:
             return 'sell', 0.1
         
@@ -283,7 +284,9 @@ async def decide_transaction(sym, start_price, current_price, buy_price, high_pr
     return 'hold', 0.0  # 해당 조건 없을 때 홀드
 
 # 로깅 설정 초기화
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(threadName)s - %(message)s')
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s [%(levelname)s] %(threadName)s - %(message)s',
+                    filename='logfile.log')
 async def handle_stock_transaction(sym, name, have_qty, start_price, current_price, buy_price, high_price):
     decision, percent = await decide_transaction(sym, start_price, current_price, buy_price, high_price)
     if decision == "sell":
@@ -309,16 +312,20 @@ async def handle_stock_transaction(sym, name, have_qty, start_price, current_pri
                 logging.error(f'분할 매도 실패: {sym}')
 
     elif decision == "buy":
-        buy_qty = max(int((start_price * percent) // current_price), 1)  # 분할 매수 수량 계산
+        buy_qty = max(int((have_qty * percent) // current_price), 1)  # 분할 매수 수량 계산
         result = await asyncio.to_thread(buy, sym, buy_qty)
         if result:
             stock_dict = await asyncio.to_thread(get_stock_balance)
             have_qty = stock_dict.get(sym, {}).get('qty', 0)
             buy_price = stock_dict.get(sym, {}).get('price', 0)
+            qty,_,_,_,_ = await asyncio.to_thread(get_trade_info,sym)
+            if qty is not None:
+                await asyncio.to_thread(database.deleteData, 'trades', "code", sym)
+                logging.info(f'trades 레코드 삭제: {sym}')
             logging.info(f'매수 성공: {sym} - 매수수량: {buy_qty}, 매수가격: {buy_price}원')
             await asyncio.to_thread(database.insertData, 'trades', {
                 'code': sym,
-                'trade_date': str(datetime.now().date()),
+                'trade_date': str(datetime.datetime.now().date()),
                 'buy_price': buy_price,
                 'sell_price': 0,
                 'start_price': start_price,
@@ -340,7 +347,7 @@ async def main():
         ACCESS_TOKEN = await asyncio.to_thread(get_access_token_if_needed)
         total_cash = await asyncio.to_thread(get_balance)
         stock_dict = await asyncio.to_thread(get_stock_balance)
-        target_buy_count = 5 
+        target_buy_count = 3 
         if isAi:
             symbol_list = await asyncio.to_thread(model.buy_companies) #인공지능
             buy_percent = 1.0 / target_buy_count
@@ -372,26 +379,38 @@ async def main():
                     await asyncio.to_thread(database.deleteData,'trades','code',sym)
                 await asyncio.sleep(1)
                 
-            if t_start < t_ai < t_sell :  # AM 09:05 ~ PM 03:15 : 매수
-                symbol_list = await asyncio.to_thread(database.codes) 
+            # if t_start < t_ai < t_sell :  # AM 09:05 ~ PM 03:15 : 매수
+            #     symbol_list = await asyncio.to_thread(database.codes) 
             if t_start < t_now < t_sell :  # AM 09:05 ~ PM 03:15 : 매수
                 stock_dict = await asyncio.to_thread(get_stock_balance)
                 if len(stock_dict) < target_buy_count:
                     for sym in symbol_list:
-                        print('추천주식수:',len(symbol_list))
-                        if len(stock_dict) == target_buy_count:
+                        print(f'처리 중인 심볼: {sym}')
+                        stock_dict = await asyncio.to_thread(get_stock_balance)
+                        current_stock_count = len(stock_dict)
+                        print(f'현재 보유 주식 수: {current_stock_count}, 목표 보유 주식 수: {target_buy_count}')
+
+                        if current_stock_count >= target_buy_count:
+                            print('목표 보유 주식 수에 도달함.')
                             break
-                        if sym in stock_dict.keys():
+
+                        qty, _, _, _, _ = await asyncio.to_thread(get_trade_info, sym)
+                        print(f'{sym}의 보유 수량: {qty}')
+
+                        if qty is not None and qty > 0:
+                            print(f'{sym}는 이미 {qty}주 보유 중이므로 건너뜀.')
                             continue
+                            
                         else:
                             print('매수체결 시도 ... !!!')
-                            target_price = await asyncio.to_thread(get_target_price,sym)
-                            start_price,current_price,high_price,low_price = await asyncio.to_thread(get_price,sym)
-                            if target_price < current_price:
+                            target_price,start_price = await asyncio.to_thread(get_target_price,sym)
+                            current_price,high_price,low_price = await asyncio.to_thread(get_price,sym)
                                 # 매수인경우만 buy_amount를 보냄 중요~
-                                stocks_to_trade.append((sym,'',0,buy_amount,current_price,0,high_price))
-                                # 각 주식 거래를 비동기적으로 처리
-                
+                            stocks_to_trade.append((sym,'',buy_amount,start_price,current_price,0,high_price))
+                            # if target_price < current_price:
+                            #     # 매수인경우만 buy_amount를 보냄 중요~
+                            #     stocks_to_trade.append((sym,'',0,buy_amount,current_price,0,high_price))
+                            #     # 각 주식 거래를 비동기적으로 처리
                 else:
                     stock_dict = await asyncio.to_thread(get_stock_balance)
                     syms = stock_dict.keys()

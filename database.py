@@ -367,7 +367,7 @@ def codes():
             print("Failed to retrieve data:", response.status_code)
     results.sort(key=lambda x: x['grade'], reverse=True)
     # 상위 10개 요소의 'code' 값만을 포함하는 새로운 리스트 생성
-    codes = [result['code'] for result in results[:5]]
+    codes = [result['code'] for result in results[:3]]
     return codes
 # 비동기 함수 실행
 
