@@ -10,6 +10,7 @@ import util
 import requests
 from bs4 import BeautifulSoup
 import asyncio
+import aiohttp
 # 로깅 설정
 with open('config.yaml', encoding='UTF-8') as f:
     _cfg = yaml.load(f, Loader=yaml.FullLoader)
@@ -21,89 +22,115 @@ ACNT_PRDT_CD = _cfg['ACNT_PRDT_CD']
 DISCORD_WEBHOOK_URL = _cfg['DISCORD_WEBHOOK_URL']
 URL_BASE = _cfg['URL_BASE']
 
-def send_message(msg):
-    """디스코드 메세지 전송"""
+async def send_message(msg):
+    """디스코드 메세지 전송 (비동기)"""
     now = datetime.datetime.now()
     message = {"content": f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] {str(msg)}"}
-    requests.post(DISCORD_WEBHOOK_URL, data=message)
-    print(message)
+    async with aiohttp.ClientSession() as session:
+        async with session.post(DISCORD_WEBHOOK_URL, data=message) as response:
+            if response.status != 204:
+                raise Exception(f"Failed to send message, status code: {response.status}")
+            print(message)
 
-def get_access_token():
-    """토큰 발급"""
-    headers = {"content-type":"application/json"}
-    body = {"grant_type":"client_credentials",
-    "appkey":APP_KEY, 
-    "appsecret":APP_SECRET}
-    PATH = "oauth2/tokenP"
-    URL = f"{URL_BASE}/{PATH}"
-    res = requests.post(URL, headers=headers, data=json.dumps(body))
-    ACCESS_TOKEN = res.json()["access_token"]
-    return ACCESS_TOKEN
+async def get_access_token():
+    """토큰 발급 (비동기)"""
+    headers = {"content-type": "application/json"}
+    body = {
+        "grant_type": "client_credentials",
+        "appkey": APP_KEY,
+        "appsecret": APP_SECRET
+    }
+    url = f"{URL_BASE}/oauth2/tokenP"
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=body) as response:
+            if response.status == 200:
+                res = await response.json()
+                return res["access_token"]
+            else:
+                raise Exception(f"Failed to get access token, status code: {response.status}")
+
     
-def hashkey(datas):
-    """암호화"""
-    PATH = "uapi/hashkey"
-    URL = f"{URL_BASE}/{PATH}"
+async def hashkey(datas):
+    """암호화 (비동기)"""
+    url = f"{URL_BASE}/uapi/hashkey"
     headers = {
-    'content-Type' : 'application/json',
-    'appKey' : APP_KEY,
-    'appSecret' : APP_SECRET,
+        'Content-Type': 'application/json',
+        'appKey': APP_KEY,
+        'appSecret': APP_SECRET,
     }
-    res = requests.post(URL, headers=headers, data=json.dumps(datas))
-    hashkey = res.json()["HASH"]
-    return hashkey
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=datas) as response:
+            if response.status == 200:
+                res = await response.json()
+                return res["HASH"]
+            else:
+                raise Exception(f"Failed to generate hashkey, status code: {response.status}")
 
-def get_price(code="005930"):
-    """현재가 조회"""
-    PATH = "uapi/domestic-stock/v1/quotations/inquire-price"
-    URL = f"{URL_BASE}/{PATH}"
-    headers = {"Content-Type":"application/json", 
-            "authorization": f"Bearer {ACCESS_TOKEN}",
-            "appKey":APP_KEY,
-            "appSecret":APP_SECRET,
-            "tr_id":"FHKST01010100"}
-    params = {
-    "fid_cond_mrkt_div_code":"J",
-    "fid_input_iscd":code,
-    }
-    res = requests.get(URL, headers=headers, params=params)
-    current_price = int(res.json()['output']['stck_prpr'])
-    high_price = int(res.json()['output']['stck_hgpr'])
-    low_price = int(res.json()['output']['stck_lwpr'])
-    return current_price, high_price, low_price
 
-def get_target_price(code="005930"):
-    """변동성 돌파 전략으로 매수 목표가 조회"""
-    PATH = "uapi/domestic-stock/v1/quotations/inquire-daily-price"
-    URL = f"{URL_BASE}/{PATH}"
-    headers = {"Content-Type":"application/json", 
+async def get_price(code="005930"):
+    """현재가 조회 (비동기)"""
+    url = f"{URL_BASE}/uapi/domestic-stock/v1/quotations/inquire-price"
+    headers = {
+        "Content-Type": "application/json",
         "authorization": f"Bearer {ACCESS_TOKEN}",
-        "appKey":APP_KEY,
-        "appSecret":APP_SECRET,
-        "tr_id":"FHKST01010400"}
-    params = {
-    "fid_cond_mrkt_div_code":"J",
-    "fid_input_iscd":code,
-    "fid_org_adj_prc":"1",
-    "fid_period_div_code":"D"
+        "appKey": APP_KEY,
+        "appSecret": APP_SECRET,
+        "tr_id": "FHKST01010100"
     }
-    res = requests.get(URL, headers=headers, params=params)
-    stck_oprc = int(res.json()['output'][0]['stck_oprc']) #오늘 시가
-    stck_hgpr = int(res.json()['output'][1]['stck_hgpr']) #전일 고가
-    stck_lwpr = int(res.json()['output'][1]['stck_lwpr']) #전일 저가
-    target_price = stck_oprc + (stck_hgpr - stck_lwpr) * 0.5
-    return target_price,stck_oprc
+    params = {
+        "fid_cond_mrkt_div_code": "J",
+        "fid_input_iscd": code
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers, params=params) as response:
+            if response.status == 200:
+                res = await response.json()
+                current_price = int(res['output']['stck_prpr'])
+                high_price = int(res['output']['stck_hgpr'])
+                low_price = int(res['output']['stck_lwpr'])
+                return current_price, high_price, low_price
+            else:
+                raise Exception(f"Failed to retrieve stock prices, status code: {response.status}")
 
-def get_stock_balance():
-    """주식 잔고조회"""
-    PATH = "uapi/domestic-stock/v1/trading/inquire-balance"
-    URL = f"{URL_BASE}/{PATH}"
-    headers = {"Content-Type":"application/json", 
-        "authorization":f"Bearer {ACCESS_TOKEN}",
-        "appKey":APP_KEY,
-        "appSecret":APP_SECRET,
-        "tr_id":"TTTC8434R",
-        "custtype":"P",
+
+async def get_target_price(code="005930"):
+    """변동성 돌파 전략으로 매수 목표가 조회 (비동기)"""
+    url = f"{URL_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-price"
+    headers = {
+        "Content-Type": "application/json",
+        "authorization": f"Bearer {ACCESS_TOKEN}",
+        "appKey": APP_KEY,
+        "appSecret": APP_SECRET,
+        "tr_id": "FHKST01010400"
+    }
+    params = {
+        "fid_cond_mrkt_div_code": "J",
+        "fid_input_iscd": code,
+        "fid_org_adj_prc": "1",
+        "fid_period_div_code": "D"
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers, params=params) as response:
+            if response.status == 200:
+                res = await response.json()
+                stck_oprc = int(res['output'][0]['stck_oprc'])  # 오늘 시가
+                stck_hgpr = int(res['output'][1]['stck_hgpr'])  # 전일 고가
+                stck_lwpr = int(res['output'][1]['stck_lwpr'])  # 전일 저가
+                target_price = stck_oprc + (stck_hgpr - stck_lwpr) * 0.5
+                return target_price, stck_oprc
+            else:
+                raise Exception(f"Failed to retrieve target price, status code: {response.status}")
+
+async def get_stock_balance():
+    """주식 잔고조회 (비동기)"""
+    url = f"{URL_BASE}/uapi/domestic-stock/v1/trading/inquire-balance"
+    headers = {
+        "Content-Type": "application/json",
+        "authorization": f"Bearer {ACCESS_TOKEN}",
+        "appKey": APP_KEY,
+        "appSecret": APP_SECRET,
+        "tr_id": "TTTC8434R",
+        "custtype": "P",
     }
     params = {
         "CANO": CANO,
@@ -118,35 +145,36 @@ def get_stock_balance():
         "CTX_AREA_FK100": "",
         "CTX_AREA_NK100": ""
     }
-    res = requests.get(URL, headers=headers, params=params)
-    stock_list = res.json()['output1']
-    evaluation = res.json()['output2']
-    stock_dict = {}
-    send_message(f"====주식 보유잔고====")
-    for stock in stock_list:
-        if int(stock['hldg_qty']) > 0:
-            stock_dict[stock['pdno']] = {'name':stock['prdt_name'],'qty': int(stock['hldg_qty']), 'price': int(float(stock['pchs_avg_pric']))}
-            # send_message(f"{stock['prdt_name']}({stock['pdno']})에 대한 보유주식수는 {stock['hldg_qty']}주 이며, 매수단가는 {stock['pchs_avg_pric']}원 입니다.")
-            time.sleep(0.1)
-    send_message(f"주식 평가 금액: {evaluation[0]['scts_evlu_amt']}원")
-    time.sleep(0.1)
-    send_message(f"평가 손익 합계: {evaluation[0]['evlu_pfls_smtl_amt']}원")
-    time.sleep(0.1)
-    send_message(f"총 평가 금액: {evaluation[0]['tot_evlu_amt']}원")
-    time.sleep(0.1)
-    send_message(f"=================")
-    return stock_dict
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers, params=params) as response:
+            if response.status == 200:
+                res = await response.json()
+                stock_list = res['output1']
+                evaluation = res['output2']
+                stock_dict = {}
+                for stock in stock_list:
+                    if int(stock['hldg_qty']) > 0:
+                        stock_dict[stock['pdno']] = {'name': stock['prdt_name'], 'qty': int(stock['hldg_qty']), 'price': int(float(stock['pchs_avg_pric']))}
+                # Async call to send_message, needs to be defined or adapted for asynchronous handling
+                await send_message(f"====주식 보유잔고====")
+                await send_message(f"주식 평가 금액: {evaluation[0]['scts_evlu_amt']}원")
+                await send_message(f"평가 손익 합계: {evaluation[0]['evlu_pfls_smtl_amt']}원")
+                await send_message(f"총 평가 금액: {evaluation[0]['tot_evlu_amt']}원")
+                await send_message(f"=================")
+                return stock_dict
+            else:
+                raise Exception(f"Failed to retrieve stock balance, status code: {response.status}")
 
-def get_balance():
-    """현금 잔고조회"""
-    PATH = "uapi/domestic-stock/v1/trading/inquire-psbl-order"
-    URL = f"{URL_BASE}/{PATH}"
-    headers = {"Content-Type":"application/json", 
-        "authorization":f"Bearer {ACCESS_TOKEN}",
-        "appKey":APP_KEY,
-        "appSecret":APP_SECRET,
-        "tr_id":"TTTC8908R",
-        "custtype":"P",
+async def get_balance():
+    """현금 잔고조회 (비동기)"""
+    url = f"{URL_BASE}/uapi/domestic-stock/v1/trading/inquire-psbl-order"
+    headers = {
+        "Content-Type": "application/json",
+        "authorization": f"Bearer {ACCESS_TOKEN}",
+        "appKey": APP_KEY,
+        "appSecret": APP_SECRET,
+        "tr_id": "TTTC8908R",
+        "custtype": "P"
     }
     params = {
         "CANO": CANO,
@@ -157,19 +185,30 @@ def get_balance():
         "CMA_EVLU_AMT_ICLD_YN": "Y",
         "OVRS_ICLD_YN": "Y"
     }
-    res = requests.get(URL, headers=headers, params=params)
-    # cash = int(res.json()['output']['max_buy_amt']) / 2
-    # send_message(f"매수가능금액: {cash}원") # 미수거래가능잔고
-    cash = res.json()['output']['ord_psbl_cash'] # 주문가능현금잔고
-    amt_cash = res.json()['output']['ruse_psbl_amt'] # 재사용가능잔고
-    cash = int(cash) + int(amt_cash)
-    send_message(f"매수가능금액: {cash}원") # 거래가능잔고
-    return int(cash)
-
-def buy(code="005930", qty="1"):
-    """주식 시장가 매수"""  
-    PATH = "uapi/domestic-stock/v1/trading/order-cash"
-    URL = f"{URL_BASE}/{PATH}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers, params=params) as response:
+            if response.status == 200:
+                res = await response.json()
+                cash = int(res['output']['ord_psbl_cash'])  # 주문가능현금잔고
+                amt_cash = int(res['output']['ruse_psbl_amt'])  # 재사용가능잔고
+                cash = cash + amt_cash
+                await send_message(f"매수가능금액: {cash}원")  # 거래가능잔고
+                return cash
+            else:
+                raise Exception(f"Failed to retrieve balance, status code: {response.status}")
+            
+async def buy(code="005930", qty="1"):
+    """주식 시장가 매수 (비동기)"""
+    path = "uapi/domestic-stock/v1/trading/order-cash"
+    url = f"{URL_BASE}/{path}"
+    hash_key = await hashkey({
+        "CANO": CANO,
+        "ACNT_PRDT_CD": ACNT_PRDT_CD,
+        "PDNO": code,
+        "ORD_DVSN": "01",
+        "ORD_QTY": str(int(qty)),
+        "ORD_UNPR": "0",
+    })
     data = {
         "CANO": CANO,
         "ACNT_PRDT_CD": ACNT_PRDT_CD,
@@ -177,27 +216,38 @@ def buy(code="005930", qty="1"):
         "ORD_DVSN": "01",
         "ORD_QTY": str(int(qty)),
         "ORD_UNPR": "0",
+        "hashkey": hash_key
     }
-    headers = {"Content-Type":"application/json", 
-        "authorization":f"Bearer {ACCESS_TOKEN}",
-        "appKey":APP_KEY,
-        "appSecret":APP_SECRET,
-        "tr_id":"TTTC0802U",
-        "custtype":"P",
-        "hashkey" : hashkey(data)
+    headers = {
+        "Content-Type": "application/json",
+        "authorization": f"Bearer {ACCESS_TOKEN}",
+        "appKey": APP_KEY,
+        "appSecret": APP_SECRET,
+        "tr_id": "TTTC0802U",
+        "custtype": "P"
     }
-    res = requests.post(URL, headers=headers, data=json.dumps(data))
-    if res.json()['rt_cd'] == '0':
-        send_message(f"[매수 성공]{str(res.json())}")
-        return True
-    else:
-        send_message(f"[매수 실패]{str(res.json())}")
-        return False
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=data) as response:
+            res = await response.json()
+            if res['rt_cd'] == '0':
+                await send_message(f"[매수 성공]{str(res)}")
+                return True
+            else:
+                await send_message(f"[매수 실패]{str(res)}")
+                return False
 
-def sell(code="005930", qty="1"):
-    """주식 시장가 매도"""
-    PATH = "uapi/domestic-stock/v1/trading/order-cash"
-    URL = f"{URL_BASE}/{PATH}"
+async def sell(code="005930", qty="1"):
+    """주식 시장가 매도 (비동기)"""
+    path = "uapi/domestic-stock/v1/trading/order-cash"
+    url = f"{URL_BASE}/{path}"
+    hash_key = await hashkey({
+        "CANO": CANO,
+        "ACNT_PRDT_CD": ACNT_PRDT_CD,
+        "PDNO": code,
+        "ORD_DVSN": "01",
+        "ORD_QTY": qty,
+        "ORD_UNPR": "0",
+    })
     data = {
         "CANO": CANO,
         "ACNT_PRDT_CD": ACNT_PRDT_CD,
@@ -205,52 +255,51 @@ def sell(code="005930", qty="1"):
         "ORD_DVSN": "01",
         "ORD_QTY": qty,
         "ORD_UNPR": "0",
+        "hashkey": hash_key
     }
-    headers = {"Content-Type":"application/json", 
-        "authorization":f"Bearer {ACCESS_TOKEN}",
-        "appKey":APP_KEY,
-        "appSecret":APP_SECRET,
-        "tr_id":"TTTC0801U",
-        "custtype":"P",
-        "hashkey" : hashkey(data)
+    headers = {
+        "Content-Type": "application/json",
+        "authorization": f"Bearer {ACCESS_TOKEN}",
+        "appKey": APP_KEY,
+        "appSecret": APP_SECRET,
+        "tr_id": "TTTC0801U",
+        "custtype": "P"
     }
-    res = requests.post(URL, headers=headers, data=json.dumps(data))
-    if res.json()['rt_cd'] == '0':
-        send_message(f"[매도 성공]{str(res.json())}")
-        return True
-    else:
-        send_message(f"[매도 실패]{str(res.json())}")
-        return False
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=data) as response:
+            res = await response.json()
+            if res['rt_cd'] == '0':
+                await send_message(f"[매도 성공]{str(res)}")
+                return True
+            else:
+                await send_message(f"[매도 실패]{str(res)}")
+                return False
 
-def get_access_token_if_needed():
-    """토큰을 가져오거나 업데이트합니다."""
+async def get_access_token_if_needed():
+    """Token retrieval or update, done asynchronously."""
     now = datetime.datetime.now().date()
-    if common.istoken():
-        token = common.read('token')[-1]
+    if await common.istoken():  # Assuming istoken is an async function now
+        token = await common.read('token')[-1]  # Assuming read is adapted to be async
         if token[0] == str(now):
-            ACCESS_TOKEN = token[1]
-            print('로드')
+            access_token = token[1]
+            print('Token loaded')
         else:
-            ACCESS_TOKEN = get_access_token()
-            common.write('token', str(now), ACCESS_TOKEN)
-            print('파일 존재하고, 발급')
+            access_token = await get_access_token()
+            await common.write('token', str(now), access_token)  # Assuming write is async
+            print('Token exists, reissued')
     else:
-        ACCESS_TOKEN = get_access_token()
-        common.write('token', str(now), ACCESS_TOKEN)
-        print('파일 생성하고, 발급')
+        access_token = await get_access_token()
+        await common.write('token', str(now), access_token)  # Assuming write is async
+        print('Token created and issued')
 
-    return ACCESS_TOKEN
-def get_trade_info(sym):
-    query_data = database.queryByField('trades', 'code', sym)
+    return access_token
+
+async def iscode(sym):
+    query_data = await database.queryByField('trades', 'code', sym)
     if len(query_data) > 0:
-        for index, row in query_data.iterrows():
-            qty = row['qty']
-            buy_price = row['buy_price']
-            sell_price = row['sell_price']
-            high_price = row['high_price']
-            start_price = row['start_price']
-        return qty, buy_price, sell_price, start_price, high_price
-    return None, None, None,None,None
+        return True
+    return False
+
 
 
 async def decide_transaction(sym, start_price, current_price, buy_price, high_price):
@@ -288,42 +337,33 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s [%(levelname)s] %(threadName)s - %(message)s',
                     filename='logfile.log')
 async def handle_stock_transaction(sym, name, have_qty, start_price, current_price, buy_price, high_price):
+    global stock_dict
     decision, percent = await decide_transaction(sym, start_price, current_price, buy_price, high_price)
+    
     if decision == "sell":
         profit = current_price - buy_price
         profit_desc = '수익' if profit > 0 else '손실'
-        
-        if percent == 1.0:  # 전량 매도
-            result = await asyncio.to_thread(sell, sym, have_qty)
-            if result:
-                sell_amount = profit * have_qty
-                logging.info(f'*** 전량매도 *** {sym} - {profit_desc}, 매도금액: {sell_amount}원, 매도수량: {have_qty}')
-                await asyncio.to_thread(database.deleteData, 'trades', "code", sym)
+        sell_qty = have_qty if percent == 1.0 else max(int(have_qty * percent), 1)
+
+        if await sell(sym, sell_qty):
+            sell_amount = profit * sell_qty
+            logging.info(f'*** {("전량" if percent == 1.0 else "분할")}매도 *** {sym} - {profit_desc}, 매도금액: {sell_amount}원, 매도수량: {sell_qty}')
+            if percent == 1.0:
+                await database.deleteData('trades', "code", sym)
             else:
-                logging.error(f'전량 매도 실패: {sym}')
-        else:  # 분할 매도
-            sell_qty = max(int(have_qty * percent), 1)  # 매도 수량은 최소 1주
-            result = await asyncio.to_thread(sell, sym, sell_qty)
-            if result:
-                sell_amount = profit * sell_qty
-                logging.info(f'*** 분할매도 *** {sym} - {profit_desc}, 매도금액: {sell_amount}원, 매도수량: {sell_qty}')
-                await asyncio.to_thread(database.updateData, 'trades', {'qty': have_qty - sell_qty}, "code", sym)
-            else:
-                logging.error(f'분할 매도 실패: {sym}')
+                await database.updateData('trades', {'qty': have_qty - sell_qty}, "code", sym)
+        else:
+            logging.error(f'매도 실패: {sym}')
 
     elif decision == "buy":
-        buy_qty = max(int((have_qty * percent) // current_price), 1)  # 분할 매수 수량 계산
-        result = await asyncio.to_thread(buy, sym, buy_qty)
-        if result:
-            stock_dict = await asyncio.to_thread(get_stock_balance)
+        buy_qty = max(int((have_qty * percent) // current_price), 1)
+        if await buy(sym, buy_qty):
+            stock_dict = await get_stock_balance()
             have_qty = stock_dict.get(sym, {}).get('qty', 0)
             buy_price = stock_dict.get(sym, {}).get('price', 0)
-            qty,_,_,_,_ = await asyncio.to_thread(get_trade_info,sym)
-            if qty is not None:
-                await asyncio.to_thread(database.deleteData, 'trades', "code", sym)
-                logging.info(f'trades 레코드 삭제: {sym}')
-            logging.info(f'매수 성공: {sym} - 매수수량: {buy_qty}, 매수가격: {buy_price}원')
-            await asyncio.to_thread(database.insertData, 'trades', {
+            if await iscode(sym):
+                await database.deleteData('trades', "code", sym)
+            await database.insertData('trades', {
                 'code': sym,
                 'trade_date': str(datetime.datetime.now().date()),
                 'buy_price': buy_price,
@@ -332,120 +372,144 @@ async def handle_stock_transaction(sym, name, have_qty, start_price, current_pri
                 'high_price': high_price,
                 'qty': buy_qty
             })
+            logging.info(f'매수 성공: {sym} - 매수수량: {buy_qty}, 매수가격: {buy_price}원')
         else:
             logging.error(f'매수 실패: {sym}')
 
     else:
         logging.info(f"{sym} {name} 주식 거래 보류: 현재 가격 {current_price}원, 매수가격: {buy_price}원, 보유수량: {have_qty}, 예상금액: {(current_price - buy_price) * have_qty}원")
-        await asyncio.to_thread(database.updateData, 'trades', {'qty': have_qty, 'buy_price': buy_price, 'sell_price': current_price, 'high_price': high_price}, "code", sym)
+        await database.updateData('trades', {'qty': have_qty, 'buy_price': buy_price, 'sell_price': current_price, 'high_price': high_price}, "code", sym)
+
+async def symbol_list_load(isai):
+    if isai:
+        sym_list = await model.buy_companies()  # Assume this now performs async operations
+    else:
+        sym_list = await database.codes()  # Assume this is also converted to async
+    return sym_list
+        
+
+async def buy_amount_load(count):
+    if count == 0:
+        return 0
+    cash = await get_balance()  # Directly await the asynchronous version of get_balance
+    percent = 1.0 / count
+    amount = cash * percent
+    return amount
+
+
+async def gen_time():
+    t_now = datetime.datetime.now()
+    t_9 = t_now.replace(hour=9, minute=0, second=0, microsecond=0)
+    t_start = t_now.replace(hour=9, minute=1, second=0, microsecond=0)
+    t_ai = t_now.replace(hour=9, minute=30, second=0,microsecond=0)
+    t_sell = t_now.replace(hour=15, minute=15, second=0, microsecond=0)
+    t_exit = t_now.replace(hour=15, minute=20, second=0,microsecond=0)
+    return t_9,t_start,t_sell,t_exit,t_ai
+
+async def total_sell():
+    stock_dict = await get_stock_balance()  # Assume get_stock_balance is now an async function
+    syms = stock_dict.keys()
+    for sym in syms:
+        have_qty = stock_dict[sym]['qty']
+        await sell(sym, have_qty)  # Assume sell is now an async function
+        await database.deleteData('trades', 'code', sym)  # Assume deleteData is now an async function
+    await asyncio.sleep(1)  # Sleep if necessary, although typically you might not need this in an async workflow
+
+
+async def isweekday():
+    today = datetime.datetime.today().weekday()
+    if today == 5 or today == 6:  # 토요일이나 일요일이면 자동 종료
+        await asyncio.sleep(.1)
+        return True
+    return False
+
+async def stock_buy():
+    global symbol_list, stock_dict, target_buy_count, t_ai, t_now, t_sell, stocks_to_trade, buy_amount
+    stocks_to_trade = []
+    for sym in symbol_list:
+        current_stock_count = len(stock_dict)
+        if current_stock_count >= target_buy_count:
+            break
+        if await iscode(sym):
+            continue
+        print('*** 매수체결 시도 ***')
+        target_price, start_price = await get_target_price(sym)
+        current_price, high_price, low_price = await get_price(sym)
+        if t_ai < t_now < t_sell: 
+            if target_price < current_price:
+                stocks_to_trade.append((sym, '', 0, buy_amount, current_price, 0, high_price))
+        else:
+            stocks_to_trade.append((sym, '', buy_amount, start_price, current_price, 0, high_price))
+
+async def stock_sell():
+    global stock_dict, stocks_to_trade
+    stocks_to_trade = []
+    syms = stock_dict.keys()
+    for sym in syms:
+        have_qty = stock_dict[sym]['qty']
+        buy_price = stock_dict[sym]['price']
+        name = stock_dict[sym]['name']
+        start_price, current_price, high_price, low_price = await get_price(sym)
+        stocks_to_trade.append((sym, name, have_qty, start_price, current_price, buy_price, high_price))
+
 
 async def main():
-    global ACCESS_TOKEN
-    # 자동매매 시작
+    global ACCESS_TOKEN, symbol_list, stock_dict, buy_amount, stocks_to_trade
     try:
-        isAi = True
-        ACCESS_TOKEN = await asyncio.to_thread(get_access_token_if_needed)
-        total_cash = await asyncio.to_thread(get_balance)
-        stock_dict = await asyncio.to_thread(get_stock_balance)
-        target_buy_count = 3 
-        if isAi:
-            symbol_list = await asyncio.to_thread(model.buy_companies) #인공지능
-            buy_percent = 1.0 / target_buy_count
-            buy_amount = total_cash * buy_percent
-        else:
-            symbol_list = await asyncio.to_thread(database.codes) 
-            buy_percent = 1.0 / target_buy_count
-            buy_amount = total_cash * buy_percent
+        isweek = await asyncio.to_thread(isweekday)
+        if isweek:
+            await send_message("주말이므로 프로그램을 종료합니다.")
+            return
 
-        await asyncio.to_thread(send_message,"===국내 주식 자동매매 프로그램을 시작합니다===") 
+        ACCESS_TOKEN = await get_access_token_if_needed()
+        isAi = False  # 인공지능: True, 다음 순위: False 9시에서 9시30분까지는 피크타임 적용 다음으로
+        target_buy_count = 3  # 주식거래 종목수 설정
+        t_9, t_start, t_sell, t_exit, t_ai = await gen_time()  # 거래시간대별 계산
+
+        await send_message("===국내 주식 자동매매 프로그램을 시작합니다===")
         while True:
             stocks_to_trade = []
             t_now = datetime.datetime.now()
-            t_9 = t_now.replace(hour=9, minute=0, second=0, microsecond=0)
-            t_start = t_now.replace(hour=9, minute=1, second=0, microsecond=0)
-            t_ai = t_now.replace(hour=9, minute=5, second=0,microsecond=0)
-            t_sell = t_now.replace(hour=15, minute=15, second=0, microsecond=0)
-            t_exit = t_now.replace(hour=15, minute=20, second=0,microsecond=0)
-            today = datetime.datetime.today().weekday()
-            if today == 5 or today == 6:  # 토요일이나 일요일이면 자동 종료
-                await asyncio.to_thread(send_message,"주말이므로 프로그램을 종료합니다.") 
-                break
-            if t_9 < t_now < t_start: # 잔여 수량 매도
-                stock_dict = await asyncio.to_thread(get_stock_balance)
-                syms = stock_dict.keys()
-                for sym in syms:
-                    have_qty = stock_dict[sym]['qty']
-                    await asyncio.to_thread(sell,sym,have_qty)
-                    await asyncio.to_thread(database.deleteData,'trades','code',sym)
-                await asyncio.sleep(1)
-                
-            # if t_start < t_ai < t_sell :  # AM 09:05 ~ PM 03:15 : 매수
-            #     symbol_list = await asyncio.to_thread(database.codes) 
-            if t_start < t_now < t_sell :  # AM 09:05 ~ PM 03:15 : 매수
-                stock_dict = await asyncio.to_thread(get_stock_balance)
+
+            if t_9 < t_now < t_start:  # 잔여 수량 매도
+                await total_sell()
+
+            if t_ai < t_now < t_sell:
+                isAi = True  # 인공지능: True
+
+            if t_start < t_now < t_sell:  # AM 09:05 ~ PM 03:15 : 매수
+                stock_dict = await get_stock_balance()
+                if not stock_dict:
+                    symbol_list = await symbol_list_load(isAi)
+                    buy_amount = await buy_amount_load(len(symbol_list))
+
                 if len(stock_dict) < target_buy_count:
-                    for sym in symbol_list:
-                        print(f'처리 중인 심볼: {sym}')
-                        stock_dict = await asyncio.to_thread(get_stock_balance)
-                        current_stock_count = len(stock_dict)
-                        print(f'현재 보유 주식 수: {current_stock_count}, 목표 보유 주식 수: {target_buy_count}')
-
-                        if current_stock_count >= target_buy_count:
-                            print('목표 보유 주식 수에 도달함.')
-                            break
-
-                        qty, _, _, _, _ = await asyncio.to_thread(get_trade_info, sym)
-                        print(f'{sym}의 보유 수량: {qty}')
-
-                        if qty is not None and qty > 0:
-                            print(f'{sym}는 이미 {qty}주 보유 중이므로 건너뜀.')
-                            continue
-                            
-                        else:
-                            print('매수체결 시도 ... !!!')
-                            target_price,start_price = await asyncio.to_thread(get_target_price,sym)
-                            current_price,high_price,low_price = await asyncio.to_thread(get_price,sym)
-                                # 매수인경우만 buy_amount를 보냄 중요~
-                            stocks_to_trade.append((sym,'',buy_amount,start_price,current_price,0,high_price))
-                            # if target_price < current_price:
-                            #     # 매수인경우만 buy_amount를 보냄 중요~
-                            #     stocks_to_trade.append((sym,'',0,buy_amount,current_price,0,high_price))
-                            #     # 각 주식 거래를 비동기적으로 처리
+                    await stock_buy()
                 else:
-                    stock_dict = await asyncio.to_thread(get_stock_balance)
-                    syms = stock_dict.keys()
-                    for sym in syms:
-                        have_qty = stock_dict[sym]['qty']
-                        buy_price = stock_dict[sym]['price']
-                        name = stock_dict[sym]['name']
-                        start_price,current_price,high_price,low_price = await asyncio.to_thread(get_price,sym)
-                        stocks_to_trade.append((sym,name,have_qty,start_price,current_price,buy_price,high_price))
-                        # 각 주식 거래를 비동기적으로 처리
-                await asyncio.gather(*(handle_stock_transaction(sym,name, have_qty,start_price, current_price, buy_price, high_price) 
-                                for sym,name, have_qty,start_price, current_price, buy_price, high_price in stocks_to_trade))                
+                    await stock_sell()
+                await asyncio.gather(*(handle_stock_transaction(sym, name, have_qty, start_price, current_price, buy_price, high_price)
+                                        for sym, name, have_qty, start_price, current_price, buy_price, high_price in stocks_to_trade))
                 await asyncio.sleep(1)
 
-                if t_now.minute == 1 and t_now.second <= 5: 
-                    stock_dict = await asyncio.to_thread(get_stock_balance)
+                if t_now.minute == 30 and t_now.second <= 5:
+                    stock_dict = await get_stock_balance()
                     await asyncio.sleep(5)
 
             if t_sell < t_now < t_exit:  # PM 03:15 ~ PM 03:20 : 일괄 매도
+                await total_sell()
 
-                stock_dict = await asyncio.to_thread(get_stock_balance)
-                syms = stock_dict.keys()
-                for sym in syms:
-                    have_qty = stock_dict[sym]['qty']
-                    await asyncio.to_thread(sell,sym,have_qty)
-                    await asyncio.to_thread(database.deleteData,'trades','code',sym)
-                await asyncio.sleep(1)
-                
             if t_exit < t_now:  # PM 03:20 ~ :프로그램 종료
-                await asyncio.to_thread(send_message,"프로그램을 종료합니다.") 
+                await send_message("프로그램을 종료합니다.")
                 break
     except Exception as e:
-        await asyncio.to_thread(send_message,f"[오류 발생]{e}") 
+        await send_message(f"[오류 발생]{e}")
         await asyncio.sleep(1)
 
+symbol_list = None
+stock_dict = None
+buy_amount = None
+stocks_to_trade = None
+ACCESS_TOKEN = None
 
 if __name__ == "__main__":
     asyncio.run(main())
